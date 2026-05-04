@@ -1,0 +1,15 @@
+[agent]
+model = "claude-opus-4-5"
+sandbox = "virtual"
+
+[sandbox]
+allow_write = false
+allow_shell = false
+allowed_commands = []
+allow_compound_commands = false
+
+[session]
+typed_retries = 3
+
+[mcp]
+servers = []

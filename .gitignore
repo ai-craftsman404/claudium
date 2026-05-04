@@ -1,0 +1,10 @@
+.claudium/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+.env
+*.env
+NOTES.md
+.claude/
