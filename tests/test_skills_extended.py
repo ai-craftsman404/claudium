@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from claudium.skills import (
     load_project_instructions,
     load_roles,
@@ -13,7 +11,6 @@ from claudium.skills import (
     parse_skill,
     render_skill_prompt,
 )
-
 
 # ── load_skills ────────────────────────────────────────────────────────────────
 
@@ -26,7 +23,9 @@ def test_load_skills_finds_all_md_files(tmp_path: Path) -> None:
     skills_dir = tmp_path / ".agents" / "skills"
     skills_dir.mkdir(parents=True)
     (skills_dir / "triage.md").write_text("---\nname: triage\n---\nTriage.\n", encoding="utf-8")
-    (skills_dir / "summary.md").write_text("---\nname: summary\n---\nSummarise.\n", encoding="utf-8")
+    (skills_dir / "summary.md").write_text(
+        "---\nname: summary\n---\nSummarise.\n", encoding="utf-8"
+    )
     skills = load_skills(tmp_path)
     assert set(skills.keys()) == {"triage", "summary"}
 

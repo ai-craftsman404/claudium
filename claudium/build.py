@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 _DOCKERFILE = """\
 FROM python:3.11-slim
 WORKDIR /app

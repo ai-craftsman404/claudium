@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 
 from claudium.core import ClaudiumAgent
-from claudium.sandbox.base import SandboxPolicy
 from claudium.types import ClaudiumConfig, ClaudiumEvent, HarnessResult
 
 
@@ -24,11 +23,15 @@ class MockHarness:
         self._call_index += 1
         return text
 
-    async def run(self, *, prompt, system_prompt, config, result_tool=None, tools=None) -> HarnessResult:
+    async def run(
+        self, *, prompt, system_prompt, config, result_tool=None, tools=None
+    ) -> HarnessResult:
         self.calls.append({"prompt": prompt})
         return HarnessResult(text=self._next())
 
-    async def stream(self, *, prompt, system_prompt, config, tools=None) -> AsyncIterator[ClaudiumEvent]:
+    async def stream(
+        self, *, prompt, system_prompt, config, tools=None
+    ) -> AsyncIterator[ClaudiumEvent]:
         yield ClaudiumEvent(type="text_delta", data={"text": "ok"})
         yield ClaudiumEvent(type="message_stop", data={})
 

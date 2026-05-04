@@ -6,7 +6,6 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import contextmanager
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +23,7 @@ from claudium.skills import (
     load_skills,
     render_skill_prompt,
 )
-from claudium.types import ClaudiumConfig, ClaudiumEvent, HarnessResult, Role, Skill
+from claudium.types import ClaudiumConfig, ClaudiumEvent, HarnessResult, Role
 
 
 async def init(
@@ -313,7 +312,8 @@ class ClaudiumSession:
                     config=self._effective_config(model, role),
                     result_tool=_result_tool(result),
                 )
-        raise ValueError(f"Structured output failed after {max_retries} retries: {last_error}") from last_error
+        msg = f"Structured output failed after {max_retries} retries: {last_error}"
+        raise ValueError(msg) from last_error
 
 
 class ClaudiumTask:
@@ -334,7 +334,9 @@ class ClaudiumTask:
             )
             await db.commit()
 
-    async def prompt(self, text: str, *, model: str | None = None, result: Any = None) -> HarnessResult | Any:
+    async def prompt(
+        self, text: str, *, model: str | None = None, result: Any = None
+    ) -> HarnessResult | Any:
         parts = ["You are running inside Claudium as a focused child task."]
         role_obj = self._effective_role()
         if role_obj:
@@ -354,7 +356,9 @@ class ClaudiumTask:
         )
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("insert into messages(role, content) values (?, ?)", ("user", text))
-            await db.execute("insert into messages(role, content) values (?, ?)", ("assistant", output.text))
+            await db.execute(
+                "insert into messages(role, content) values (?, ?)", ("assistant", output.text)
+            )
             await db.commit()
         if result is not None:
             raw = output.text.strip()
@@ -362,7 +366,10 @@ class ClaudiumTask:
             return TypeAdapter(result).validate_python(value)
         return output
 
-    async def skill(self, name: str, *, args: dict[str, Any] | None = None, result: Any = None, model: str | None = None) -> HarnessResult | Any:
+    async def skill(
+        self, name: str, *, args: dict[str, Any] | None = None,
+        result: Any = None, model: str | None = None,
+    ) -> HarnessResult | Any:
         skill = self.agent.skills.get(name)
         if skill is None:
             available = ", ".join(sorted(self.agent.skills)) or "(none)"

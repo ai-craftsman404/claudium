@@ -19,7 +19,9 @@ class MockHarness:
         self._idx = 0
         self.calls: list[dict[str, Any]] = []
 
-    async def run(self, *, prompt, system_prompt, config, result_tool=None, tools=None) -> HarnessResult:
+    async def run(
+        self, *, prompt, system_prompt, config, result_tool=None, tools=None
+    ) -> HarnessResult:
         self.calls.append({"prompt": prompt})
         text = self._responses[min(self._idx, len(self._responses) - 1)]
         self._idx += 1
@@ -85,8 +87,6 @@ async def test_two_tasks_have_separate_history(agent: ClaudiumAgent) -> None:
 
 @pytest.mark.asyncio
 async def test_task_shares_sandbox_with_session(agent: ClaudiumAgent) -> None:
-    from claudium.sandbox.base import SandboxPolicy
-    from claudium.sandbox.virtual import VirtualSandbox
     session = await agent.session("s1")
     task = await session.task("t1")
     assert task.sandbox is session.sandbox

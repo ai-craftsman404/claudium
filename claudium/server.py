@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -75,7 +74,10 @@ def create_app(root: Path | None = None) -> FastAPI:
     async def handle_agent(name: str, agent_id: str, request: Request) -> JSONResponse:
         handler = _handlers.get(name)
         if handler is None:
-            raise HTTPException(status_code=404, detail=f"Agent '{name}' not found or not a webhook agent")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Agent '{name}' not found or not a webhook agent",
+            )
         try:
             body: dict[str, Any] = await request.json()
         except Exception:

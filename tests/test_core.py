@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -12,7 +11,6 @@ from pydantic import BaseModel
 
 from claudium.core import ClaudiumAgent, _result_tool
 from claudium.harness.base import HarnessProtocol
-from claudium.sandbox.base import SandboxPolicy
 from claudium.types import ClaudiumConfig, ClaudiumEvent, HarnessResult
 
 

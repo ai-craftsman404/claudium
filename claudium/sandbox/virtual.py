@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from claudium.sandbox.base import (
-    SandboxBackend,
     SandboxFileInfo,
     SandboxPolicy,
     require_shell,
