@@ -1,19 +1,44 @@
-# Claudium
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.11+-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+"/>
+  <img src="https://img.shields.io/github/actions/workflow/status/ai-craftsman404/claudium/ci.yml?style=flat-square&label=CI&logo=github" alt="CI"/>
+  <img src="https://img.shields.io/badge/built%20for-Claude-blueviolet?style=flat-square" alt="Built for Claude"/>
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License"/>
+  <img src="https://img.shields.io/badge/status-active%20development-orange?style=flat-square" alt="Active Development"/>
+</p>
 
-> The agent harness framework for Claude.
+<h1 align="center">Claudium</h1>
 
-Claudium gives you Markdown skills, stateful sessions, sandboxed filesystem and
-shell access, typed Pydantic outputs via Claude's native tool-use, streaming
-events, file-based webhook routes, and deployment-ready project structure —
-all built directly on the Anthropic SDK.
+<p align="center"><strong>Ship Claude-powered agents in minutes, not days.</strong></p>
 
-Use it to build issue triage agents, customer support agents, document
-processing pipelines, data analysis agents, and workflow agents that need
-controlled access to files, commands, tools, and structured outputs.
+<p align="center">
+The Anthropic-native agent harness for Python — giving you skills, sessions,<br/>
+sandboxing, typed outputs, streaming, and one-command deployment.<br/>
+All the infrastructure you need. None you don't.
+</p>
 
-> **Active Development**
-> Claudium is under active development. Pin your dependencies and review
-> changelogs before updating.
+---
+
+## Why Claudium?
+
+Building production agents with Claude involves the same boilerplate every time — session history, prompt engineering for structured outputs, safe file and shell access, deployment. Claudium handles all of it so you focus on what your agent actually does.
+
+```python
+from pydantic import BaseModel
+from claudium import init
+
+class TriageResult(BaseModel):
+    severity: str
+    labels: list[str]
+    summary: str
+
+async def main():
+    agent = await init(model="claude-opus-4-5")
+    session = await agent.session("triage-42")
+    result = await session.skill("triage", args={"issue": 42}, result=TriageResult)
+    print(result.severity)  # "critical"
+```
+
+That's a fully stateful, typed, Claude-powered triage agent. No prompt engineering for JSON. No session management. No boilerplate.
 
 ---
 
@@ -30,8 +55,8 @@ uv add claudium
 Optional extras:
 
 ```bash
-pip install "claudium[sandboxes]"   # remote sandbox providers (E2B, Daytona, Modal)
-pip install "claudium[server]"      # webhook server (FastAPI + SSE)
+pip install "claudium[server]"     # webhook server — FastAPI + SSE
+pip install "claudium[sandboxes]"  # remote sandboxes — E2B and more
 ```
 
 ---
@@ -44,166 +69,142 @@ cd my-agent
 claudium run --prompt "Triage issue #42"
 ```
 
----
-
-## Python API
-
-```python
-from pydantic import BaseModel
-from claudium import init
-
-
-class TriageResult(BaseModel):
-    severity: str                  # "critical" | "high" | "medium" | "low"
-    labels: list[str]
-    summary: str
-    assignee: str | None
-
-
-async def main():
-    agent = await init(
-        model="claude-opus-4-5",
-        allow_write=False,
-        allow_shell=False,
-    )
-    session = await agent.session("triage-42")
-    result = await session.skill(
-        "triage",
-        args={"issue_number": 42, "repo": "org/repo"},
-        result=TriageResult,
-    )
-    print(result.severity, result.labels)
-```
+Three commands. Running agent.
 
 ---
 
-## What Claudium Gives You
+## What You Get
 
-| Capability         | What it means                                                         |
-|--------------------|-----------------------------------------------------------------------|
-| Markdown skills    | Reusable workflows in `.agents/skills/*.md`                           |
-| Project context    | `CLAUDE.md` loaded as the agent system prompt automatically           |
-| Roles              | Scope model and behaviour per call with `.agents/roles/*.md`          |
-| Sessions           | Resume agent state with stable session IDs (SQLite-backed)            |
-| Tasks              | Run focused child tasks with isolated history and shared sandbox      |
-| Sandbox            | Read, write, edit, grep, glob, shell — behind explicit opt-in policy  |
-| Secret grants      | Secrets never injected into prompts; mounted per-call only            |
-| Typed outputs      | Pydantic results via Claude's native tool-use — no prompt hacks       |
-| Prompt caching     | Baked in by default on system prompt and skill instructions           |
-| Streaming          | `session.stream(...)`, `claudium run --stream`, or SSE                |
-| MCP               | First-class MCP server passthrough for Claude tool-use                |
-| Webhooks           | Expose `agents/*.py` as `POST /agents/{name}/{agent_id}`              |
-| Deployment         | Docker, Railway, Fly.io, Render, Vercel starter files                 |
+| | Capability | What it means |
+|---|---|---|
+| 📝 | **Markdown skills** | Define reusable agent workflows in `.agents/skills/*.md` — no code required |
+| 🔒 | **Secure sandbox** | Filesystem and shell access behind explicit opt-in policy — locked down by default |
+| 💾 | **Stateful sessions** | Resume agent context across runs with stable session IDs, SQLite-backed |
+| 🧩 | **Child tasks** | Spawn focused sub-agents with isolated history and shared sandbox |
+| 🎯 | **Typed outputs** | Return validated Pydantic models via Claude's native tool-use — no delimiter hacks |
+| ⚡ | **Prompt caching** | System prompts and skill instructions cached automatically — lower cost, faster responses |
+| 🌊 | **Streaming** | First-class streaming via `session.stream()`, CLI, or SSE webhook |
+| 🔌 | **MCP integration** | Pass MCP server tools directly into Claude's tool-use layer |
+| 🪝 | **Webhook agents** | Expose any agent as `POST /agents/{name}/{agent_id}` with one decorator |
+| 🚀 | **One-command deploy** | Generate Docker, Railway, Fly.io, and Render configs with `claudium build` |
 
 ---
 
-## Project Layout
+## Skills — Reusable Agent Workflows
 
-```
-CLAUDE.md
-claudium.toml
-.agents/
-  roles/
-    analyst.md
-  skills/
-    triage.md
-agents/
-  default.py
-```
-
----
-
-## Skill File
+Skills are Markdown files. Write once, invoke anywhere.
 
 `.agents/skills/triage.md`:
 
 ```markdown
 ---
 name: triage
-description: Analyse and classify a GitHub issue by severity, labels, and suggested assignee
+description: Classify a GitHub issue by severity, labels, and assignee
 ---
 
 You are an expert issue triage agent.
 
-Given an issue number and repository, retrieve the issue details and:
-1. Classify severity as one of: critical, high, medium, low
+Given an issue number and repository:
+1. Classify severity — critical, high, medium, or low
 2. Suggest appropriate labels
 3. Write a one-sentence summary
-4. Suggest an assignee if determinable from context
+4. Suggest an assignee if determinable
+```
+
+Invoke it with full type safety:
+
+```python
+result = await session.skill(
+    "triage",
+    args={"issue_number": 42, "repo": "org/repo"},
+    result=TriageResult,
+)
 ```
 
 ---
 
-## Role File
+## Roles — Smart Model Routing
+
+Route tasks to the right Claude model automatically.
 
 `.agents/roles/analyst.md`:
 
 ```markdown
 ---
 name: analyst
-description: Senior technical analyst — concise, evidence-based responses
 model: claude-sonnet-4-5
 ---
 
-You are a senior technical analyst. Be concise and cite evidence.
-Avoid speculation. If uncertain, say so explicitly.
+You are a senior technical analyst. Be concise and evidence-based.
 ```
 
-Roles can override the model — useful for routing fast/cheap tasks to Haiku
-and deep reasoning to Opus.
+Assign Haiku to fast tasks, Sonnet to standard work, Opus to deep reasoning — all in configuration, zero code changes.
 
 ---
 
-## Streaming
+## Sessions — Stateful by Default
 
-```bash
-claudium run --stream --prompt "Triage issue #42"
-```
+Every session persists conversation history automatically.
 
 ```python
-async for event in session.stream("Triage issue #42"):
-    print(event.type, event.data)
+# Day 1
+session = await agent.session("customer-42")
+await session.prompt("The user reports a login failure on mobile.")
+
+# Day 2 — same session, full context restored
+session = await agent.session("customer-42")
+await session.prompt("Any update on that login issue?")  # Claude remembers
 ```
+
+---
+
+## Child Tasks — Focused Sub-Agents
+
+Spawn isolated tasks that share the parent sandbox.
+
+```python
+session = await agent.session("pipeline-run-1")
+summary_task = await session.task("summarise", role="analyst")
+result = await summary_task.skill("summarise", args={"doc": "report.pdf"})
+```
+
+Isolated history. Shared filesystem. Clean separation.
 
 ---
 
 ## Security Model
 
-Claudium starts locked down:
-
-- Writes disabled until `allow_write=True`
-- Shell disabled until `allow_shell=True`
-- Compound shell syntax blocked by default
-- `allowed_commands` tuple as an explicit allowlist
-- Secrets never appear in prompts; granted per-call via `secrets=[...]`
+Claudium starts fully locked down and requires explicit opt-in for every capability.
 
 ```python
 agent = await init(
     model="claude-opus-4-5",
-    allow_write=True,
-    allow_shell=True,
-    allowed_commands=["git", "gh"],
+    allow_write=True,           # disabled by default
+    allow_shell=True,           # disabled by default
+    allowed_commands=["git"],   # empty = nothing allowed
 )
 ```
 
+- Writes disabled until `allow_write=True`
+- Shell disabled until `allow_shell=True`
+- Compound shell syntax (`&&`, `|`, `;`) blocked by default
+- Secrets never injected into prompts — granted per-call only via `secrets=[...]`
+
 ---
 
-## Webhook Agent
+## Webhook Agents
+
+Turn any agent into a live HTTP endpoint.
 
 `agents/triage.py`:
 
 ```python
 triggers = {"webhook": True}
 
-
 async def triage(context):
     agent = await context.init()
     session = await agent.session(context.agent_id)
-    result = await session.skill(
-        "triage",
-        args=context.payload,
-        result=TriageResult,
-    )
+    result = await session.skill("triage", args=context.payload, result=TriageResult)
     return result.model_dump()
 ```
 
@@ -219,41 +220,54 @@ curl http://127.0.0.1:2024/agents/triage/run-1 \
 
 ---
 
-## MCP
+## Streaming
+
+```bash
+claudium run --stream --prompt "Analyse this dataset"
+```
+
+```python
+async for event in session.stream("Analyse this dataset"):
+    if event.type == "text_delta":
+        print(event.data["text"], end="", flush=True)
+```
+
+---
+
+## MCP Integration
+
+Connect MCP servers in `claudium.toml` and their tools are available to Claude automatically.
 
 ```toml
-# claudium.toml
 [mcp]
-servers = ["filesystem", "github"]
+servers = ["npx -y @modelcontextprotocol/server-filesystem ."]
 ```
 
-MCP tools are passed directly to Claude's tool-use layer — no adapter needed.
+No adapter. No boilerplate. Claude calls MCP tools natively.
 
 ---
 
-## Deployment
+## Project Layout
 
-```bash
-claudium build --target docker
-claudium build --target railway
-claudium build --target fly
-
-claudium deploy --target fly
 ```
-
----
-
-## Development
-
-```bash
-uv sync --extra dev
-uv run ruff check .
-uv run pytest
+my-agent/
+├── CLAUDE.md              ← agent system prompt
+├── claudium.toml          ← project config
+├── .agents/
+│   ├── skills/
+│   │   └── triage.md      ← reusable skill definitions
+│   └── roles/
+│       └── analyst.md     ← model + behaviour scoping
+├── agents/
+│   └── triage.py          ← webhook agent
+└── tests/
 ```
 
 ---
 
-## claudium.toml
+## Configuration
+
+`claudium.toml`:
 
 ```toml
 [agent]
@@ -268,3 +282,53 @@ allowed_commands = []
 [mcp]
 servers = []
 ```
+
+---
+
+## Deployment
+
+Generate production-ready deployment files in one command:
+
+```bash
+claudium build --target docker    # Dockerfile + .dockerignore
+claudium build --target railway   # railway.toml
+claudium build --target fly       # fly.toml
+claudium build --target render    # render.yaml
+claudium build --target ci        # GitHub Actions workflow
+```
+
+---
+
+## Use Cases
+
+Claudium is designed for agents that do real work — not chat interfaces.
+
+- **Issue triage** — classify, label, and route GitHub issues automatically
+- **Customer support** — structured ticket handling with typed escalation paths
+- **Document processing** — ingest, extract, classify, transform at scale
+- **Data analysis** — run queries, validate schemas, produce structured reports
+- **Code review** — automated PR analysis with scored, typed findings
+- **Workflow automation** — multi-step pipelines with persistent state
+
+---
+
+## Development
+
+```bash
+git clone https://github.com/ai-craftsman404/claudium
+cd claudium
+pip install -e ".[dev,server]"
+pytest tests/ -v
+```
+
+---
+
+## Contributing
+
+Contributions are welcome. Please open an issue before submitting large changes.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
