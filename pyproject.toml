@@ -25,6 +25,9 @@ server = [
     "uvicorn>=0.30",
     "sse-starlette>=2.0",
 ]
+mcp = [
+    "mcp>=1.0",
+]
 sandboxes = [
     "e2b>=0.17",
 ]

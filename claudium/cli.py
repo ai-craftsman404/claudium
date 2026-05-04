@@ -132,5 +132,18 @@ def build(
         console.print(f"[green]created:[/green] {path.relative_to(Path.cwd())}")
 
 
+@app.command()
+def mcp(
+    root: Path = typer.Option(None, "--root", help="Project root (default: cwd)"),
+) -> None:
+    """Start the Claudium MCP server (stdio transport for Claude Code)."""
+    try:
+        from claudium.mcp_server import serve
+        serve(root)
+    except ImportError:
+        console.print("[red]Install claudium[mcp] to use the MCP server.[/red]")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
