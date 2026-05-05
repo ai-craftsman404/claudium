@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
@@ -177,10 +178,16 @@ class OrchestratorSession(ClaudiumSession):
             f"Outliers: {result.consensus.outlier_indices or []}\n\n"
             "Provide the synthesised best answer."
         )
+        config = self._effective_config(model, role)
+        t0 = time.perf_counter()
         harness_result = await self.agent.harness.run(
             prompt=synthesis_prompt,
             system_prompt=self.agent.instructions,
-            config=self._effective_config(model, role),
+            config=config,
+        )
+        await self._log_call(
+            model=config.model, latency_ms=(time.perf_counter() - t0) * 1000,
+            raw=harness_result.raw, skill="synthesise",
         )
         result.synthesis = harness_result.text
         async with aiosqlite.connect(self.db_path) as db:

@@ -145,5 +145,40 @@ def mcp(
         raise typer.Exit(1)
 
 
+@app.command()
+def trace(
+    session: str = typer.Option(None, "--session", "-s", help="Filter by session ID"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Max rows to show"),
+) -> None:
+    """Show recent harness call traces (latency, tokens, model)."""
+    asyncio.run(_trace(session=session, limit=limit))
+
+
+async def _trace(*, session: str | None, limit: int) -> None:
+    import aiosqlite
+    from rich.table import Table
+
+    from claudium import init as claudium_init
+
+    agent = await claudium_init()
+    dbs = sorted(agent.state_dir.glob("*.db"))
+    table = Table("Session", "Skill", "Model", "ms", "In", "Out", "Time")
+    for db_path in dbs:
+        async with aiosqlite.connect(db_path) as db:
+            try:
+                where = f"WHERE session_id = '{session}'" if session else ""
+                cursor = await db.execute(
+                    f"SELECT session_id, skill, model, latency_ms, input_tokens,"
+                    f" output_tokens, created_at FROM call_log {where}"
+                    f" ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                )
+                for row in await cursor.fetchall():
+                    table.add_row(*[str(v) if v is not None else "-" for v in row])
+            except Exception:
+                pass
+    console.print(table)
+
+
 if __name__ == "__main__":
     app()

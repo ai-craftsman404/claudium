@@ -11,6 +11,7 @@ from claudium.types import (
     Role,
     Skill,
     TeamResult,
+    TraceRecord,
 )
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "HarnessProtocol",
     "ConsensusSignal",
     "TeamResult",
+    "TraceRecord",
     "Role",
     "Skill",
 ]

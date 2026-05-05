@@ -70,6 +70,18 @@ class ConsensusSignal:
 
 
 @dataclass
+class TraceRecord:
+    session_id: str
+    model: str
+    latency_ms: float
+    skill: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    success: bool = True
+    created_at: str = ""
+
+
+@dataclass
 class TeamResult:
     run_id: str                   # UUID, FK to team_runs table
     prompt: str

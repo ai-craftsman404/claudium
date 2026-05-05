@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -124,6 +126,40 @@ class ClaudiumSession:
                 "create table if not exists messages "
                 "(id integer primary key autoincrement, role text, content text)"
             )
+            await db.execute(
+                "create table if not exists call_log ("
+                "id integer primary key autoincrement, session_id text, skill text, "
+                "model text, latency_ms real, input_tokens integer, output_tokens integer, "
+                "success integer default 1, created_at text)"
+            )
+            await db.commit()
+
+    async def _log_call(
+        self,
+        *,
+        model: str,
+        latency_ms: float,
+        raw: Any,
+        skill: str | None = None,
+        success: bool = True,
+    ) -> None:
+        input_tok = output_tok = None
+        usage = getattr(raw, "usage", None) if raw is not None else None
+        if usage is not None:
+            it = getattr(usage, "input_tokens", None)
+            ot = getattr(usage, "output_tokens", None)
+            input_tok = it if isinstance(it, int) else None
+            output_tok = ot if isinstance(ot, int) else None
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "insert into call_log(session_id, skill, model, latency_ms, "
+                "input_tokens, output_tokens, success, created_at) values (?,?,?,?,?,?,?,?)",
+                (
+                    self.session_id, skill, model, latency_ms,
+                    input_tok, output_tok, int(success),
+                    datetime.now(timezone.utc).isoformat(),  # noqa: UP017
+                ),
+            )
             await db.commit()
 
     async def prompt(
@@ -135,20 +171,27 @@ class ClaudiumSession:
         result: Any = None,
         secrets: list[str] | None = None,
         tools: list[dict[str, Any]] | None = None,
+        _trace_skill: str | None = None,
     ) -> HarnessResult | Any:
         built = self._build_prompt(text, result=result, role=role)
         history = await self._history_prompt(built)
         result_tool = _result_tool(result) if result is not None else None
         all_tools = list(tools or []) + self._mcp_tools()
+        config = self._effective_config(model, role)
 
+        t0 = time.perf_counter()
         with self._grant_secrets(secrets):
             output = await self.agent.harness.run(
                 prompt=history,
                 system_prompt=self.agent.instructions,
-                config=self._effective_config(model, role),
+                config=config,
                 result_tool=result_tool,
                 tools=all_tools or None,
             )
+        await self._log_call(
+            model=config.model, latency_ms=(time.perf_counter() - t0) * 1000,
+            raw=output.raw, skill=_trace_skill,
+        )
 
         await self._append("user", text)
         await self._append("assistant", output.text)
@@ -174,7 +217,9 @@ class ClaudiumSession:
             available = ", ".join(sorted(self.agent.skills)) or "(none)"
             raise KeyError(f"Unknown skill '{name}'. Available: {available}")
         text = render_skill_prompt(skill, args)
-        return await self.prompt(text, model=model, role=role, result=result, secrets=secrets)
+        return await self.prompt(
+            text, model=model, role=role, result=result, secrets=secrets, _trace_skill=name
+        )
 
     async def stream(
         self,
@@ -348,10 +393,45 @@ class ClaudiumTask:
                 "create table if not exists messages "
                 "(id integer primary key autoincrement, role text, content text)"
             )
+            await db.execute(
+                "create table if not exists call_log ("
+                "id integer primary key autoincrement, session_id text, skill text, "
+                "model text, latency_ms real, input_tokens integer, output_tokens integer, "
+                "success integer default 1, created_at text)"
+            )
+            await db.commit()
+
+    async def _log_call(
+        self,
+        *,
+        model: str,
+        latency_ms: float,
+        raw: Any,
+        skill: str | None = None,
+        success: bool = True,
+    ) -> None:
+        input_tok = output_tok = None
+        usage = getattr(raw, "usage", None) if raw is not None else None
+        if usage is not None:
+            it = getattr(usage, "input_tokens", None)
+            ot = getattr(usage, "output_tokens", None)
+            input_tok = it if isinstance(it, int) else None
+            output_tok = ot if isinstance(ot, int) else None
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "insert into call_log(session_id, skill, model, latency_ms, "
+                "input_tokens, output_tokens, success, created_at) values (?,?,?,?,?,?,?,?)",
+                (
+                    self.task_id, skill, model, latency_ms,
+                    input_tok, output_tok, int(success),
+                    datetime.now(timezone.utc).isoformat(),  # noqa: UP017
+                ),
+            )
             await db.commit()
 
     async def prompt(
-        self, text: str, *, model: str | None = None, result: Any = None
+        self, text: str, *, model: str | None = None, result: Any = None,
+        _trace_skill: str | None = None,
     ) -> HarnessResult | Any:
         parts = ["You are running inside Claudium as a focused child task."]
         role_obj = self._effective_role()
@@ -364,11 +444,16 @@ class ClaudiumTask:
         if model or (role_obj and role_obj.model):
             from dataclasses import replace as dc_replace
             config = dc_replace(config, model=model or role_obj.model)  # type: ignore[arg-type]
+        t0 = time.perf_counter()
         output = await self.agent.harness.run(
             prompt=built,
             system_prompt=self.agent.instructions,
             config=config,
             result_tool=result_tool,
+        )
+        await self._log_call(
+            model=config.model, latency_ms=(time.perf_counter() - t0) * 1000,
+            raw=output.raw, skill=_trace_skill,
         )
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("insert into messages(role, content) values (?, ?)", ("user", text))
@@ -390,7 +475,9 @@ class ClaudiumTask:
         if skill is None:
             available = ", ".join(sorted(self.agent.skills)) or "(none)"
             raise KeyError(f"Unknown skill '{name}'. Available: {available}")
-        return await self.prompt(render_skill_prompt(skill, args), model=model, result=result)
+        return await self.prompt(
+            render_skill_prompt(skill, args), model=model, result=result, _trace_skill=name
+        )
 
     def _effective_role(self) -> Role | None:
         if not self.session_role:
