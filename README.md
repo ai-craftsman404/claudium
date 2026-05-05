@@ -14,6 +14,10 @@
 Build, test, and ship production Claude agents — without a single API call in CI.
 </p>
 
+<p align="center">
+  <img src="assets/harness-architecture.png" alt="Claudium Harness Architecture" width="720"/>
+</p>
+
 ---
 
 ## The Problem Every Agent Developer Hits
