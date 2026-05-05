@@ -79,7 +79,7 @@ session = await agent.session("triage")
 result  = await session.skill("triage", args={"issue": 42}, result=TriageResult)
 ```
 
-This is what lets Claudium ship with **123 passing tests and zero API calls in CI.**
+This is what lets Claudium ship with **130 passing tests and zero API calls in CI.**
 
 ---
 
