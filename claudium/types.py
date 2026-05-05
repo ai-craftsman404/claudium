@@ -60,3 +60,19 @@ class HarnessResult:
 class ClaudiumEvent:
     type: str
     data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ConsensusSignal:
+    agreement_score: float       # 0.0 = all disagree, 1.0 = all agree
+    majority_output: str | None  # most common response text
+    outlier_indices: list[int]   # agent indices that diverged from majority
+
+
+@dataclass
+class TeamResult:
+    run_id: str                   # UUID, FK to team_runs table
+    prompt: str
+    outputs: list[HarnessResult]  # one per sub-agent, ordered by agent index
+    consensus: ConsensusSignal
+    synthesis: str | None = None  # set after orchestrator.synthesise()

@@ -7,7 +7,10 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from claudium.orchestrator import OrchestratorSession
 
 import aiosqlite
 from pydantic import TypeAdapter
@@ -92,6 +95,19 @@ class ClaudiumAgent:
         session = ClaudiumSession(agent=self, session_id=sid, role=role)
         await session._ensure_store()
         return session
+
+    async def orchestrator(
+        self,
+        session_id: str | None = None,
+        *,
+        role: str | None = None,
+    ) -> OrchestratorSession:
+        """Create an OrchestratorSession — a ClaudiumSession with agent team management."""
+        from claudium.orchestrator import OrchestratorSession  # local: avoids circular import
+        sid = session_id or "orchestrator"
+        orch = OrchestratorSession(agent=self, session_id=sid, role=role)
+        await orch._ensure_store()
+        return orch
 
 
 class ClaudiumSession:
