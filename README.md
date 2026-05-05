@@ -8,55 +8,189 @@
 
 <h1 align="center">Claudium</h1>
 
-<p align="center"><strong>Ship Claude-powered agents in minutes, not days.</strong></p>
+<p align="center"><strong>The Claude agent framework where your logic never depends on the API.</strong></p>
 
 <p align="center">
-The Anthropic-native agent harness for Python — giving you skills, sessions,<br/>
-sandboxing, typed outputs, streaming, and one-command deployment.<br/>
-All the infrastructure you need. None you don't.
+Build, test, and ship production Claude agents — without a single API call in CI.
 </p>
 
 ---
 
-## Why Claudium?
+## The Problem Every Agent Developer Hits
 
-Building production agents with Claude involves the same boilerplate every time — session history, prompt engineering for structured outputs, safe file and shell access, deployment. Claudium handles all of it so you focus on what your agent actually does.
+You build a Claude-powered agent. It works. Then reality sets in:
 
-```python
-from pydantic import BaseModel
-from claudium import init
+- **CI is slow and expensive.** Every test hits the API. 80 tests = 80 round trips = a bill and a wait.
+- **Tests are non-deterministic.** Claude responds differently each run. You can't tell if *your code* broke or the model just changed its mind.
+- **Your logic is hostage to the API.** You can't test parsing, retries, or typed outputs without a live model response.
 
-class TriageResult(BaseModel):
-    severity: str
-    labels: list[str]
-    summary: str
-
-async def main():
-    agent = await init(model="claude-opus-4-5")
-    session = await agent.session("triage-42")
-    result = await session.skill("triage", args={"issue": 42}, result=TriageResult)
-    print(result.severity)  # "critical"
-```
-
-That's a fully stateful, typed, Claude-powered triage agent. No prompt engineering for JSON. No session management. No boilerplate.
+Every other Claude framework accepts this as the cost of doing business. **Claudium doesn't.**
 
 ---
 
-## Install
+## The Harness — Claudium's Core Differentiator
 
-```bash
-pip install claudium
+Claudium places a `HarnessProtocol` between your agent logic and the model. In production it routes to `AnthropicHarness`. In tests you swap in `MockHarness`. **Your agent code never changes.**
+
+```python
+from claudium import ClaudiumAgent
+from claudium.harness.anthropic import AnthropicHarness
+from claudium.types import ClaudiumConfig, HarnessResult
+
+# Production — routes to Claude API with prompt caching
+agent = ClaudiumAgent(config=config, harness=AnthropicHarness())
+
+# CI / Tests — zero API calls, instant, fully deterministic
+class MockHarness:
+    async def run(self, *, prompt, system_prompt, config, **_) -> HarnessResult:
+        return HarnessResult(text='{"severity": "high", "labels": ["bug", "auth"]}')
+
+agent = ClaudiumAgent(config=config, harness=MockHarness())
+
+# Identical agent code — regardless of which harness is injected
+session = await agent.session("triage")
+result  = await session.skill("triage", args={"issue": 42}, result=TriageResult)
 ```
 
-```bash
-uv add claudium
+This is what lets Claudium ship with **105 passing tests and zero API calls in CI.**
+
+---
+
+## Use Cases
+
+Three real scenarios — each showing how the harness changes the game.
+
+---
+
+### 1. GitHub Issue Triage
+
+**The situation:** Your triage bot classifies incoming issues and routes them to the right team. It runs in CI on every push. Without the harness, that's an API call per test — slow, costly, and flaky when Claude's response format drifts.
+
+**Production**
+
+```console
+$ claudium run --skill triage --prompt "Issue #142: Login fails on Safari macOS 14"
+
+  Severity  →  high
+  Labels    →  bug · browser-compat · auth
+  Assignee  →  @auth-team
+  Summary   →  Safari SameSite cookie regression affecting macOS 14+
 ```
 
-Optional extras:
+```python
+result = await session.skill(
+    "triage",
+    args={"issue_number": 142, "title": "Login fails on Safari macOS 14"},
+    result=TriageResult,
+)
+# TriageResult(severity="high", labels=["bug", "browser-compat", "auth"],
+#              assignee="@auth-team", summary="Safari SameSite cookie regression...")
+```
 
-```bash
-pip install "claudium[server]"     # webhook server — FastAPI + SSE
-pip install "claudium[sandboxes]"  # remote sandboxes — E2B and more
+**The harness advantage — test the entire pipeline offline**
+
+```python
+# Swap in MockHarness — CI runs in milliseconds, zero API cost
+harness = MockHarness(responses=[
+    '{"severity": "high", "labels": ["bug", "auth"], "assignee": "@auth-team"}'
+])
+agent = ClaudiumAgent(config=config, harness=harness)
+
+# Identical skill call — tests your parsing, retries, and routing logic
+result = await session.skill("triage", args={"issue_number": 142}, result=TriageResult)
+assert result.severity == "high"
+assert "@auth-team" in result.assignee
+# Zero API calls. Runs in < 10ms. Ships with confidence.
+```
+
+---
+
+### 2. Automated PR Code Review
+
+**The situation:** You want parallel reviewers — one for security, one for performance. Each must have isolated context so their findings don't bleed into each other. Testing parallel async tasks against a live API is a nightmare.
+
+**Production**
+
+```console
+$ claudium run --skill pr-review --prompt "PR #99: OAuth2 refactor + new DB layer"
+
+  [security]     2 findings — SQL injection risk db.py:142 · missing CSRF token
+  [performance]  1 finding  — N+1 query in user_loader(), suggest eager load
+  [style]        Passed
+```
+
+```python
+session     = await agent.session("pr-review-99")
+security    = await session.task("security",    role="security-analyst")
+performance = await session.task("performance", role="perf-analyst")
+
+sec_result  = await security.prompt("Review auth.py for vulnerabilities")
+perf_result = await performance.prompt("Review db.py for N+1 query patterns")
+# Isolated history per task. Shared sandbox. No cross-contamination.
+```
+
+**The harness advantage — test parallel task logic without parallel API calls**
+
+```python
+# Each task gets its own canned response — deterministic, isolated, instant
+harness = MockHarness(responses=[
+    "2 findings — SQL injection risk db.py:142 · missing CSRF token",
+    "1 finding  — N+1 query in user_loader(), suggest eager load",
+])
+agent = ClaudiumAgent(config=config, harness=harness)
+
+session     = await agent.session("pr-review-99")
+security    = await session.task("security")
+performance = await session.task("performance")
+
+sec_result  = await security.prompt("Review auth.py")
+perf_result = await performance.prompt("Review db.py")
+assert "SQL injection" in sec_result.text
+assert "N+1" in perf_result.text
+# Two tasks. Two reviewers. Zero API calls.
+```
+
+---
+
+### 3. Persistent Customer Support
+
+**The situation:** Each customer gets a session that remembers every prior interaction. Roles route to the right support tier automatically. Testing stateful, multi-turn conversations against a live API is slow, expensive, and order-dependent.
+
+**Production**
+
+```console
+$ claudium run --session customer-7821 --prompt "Still having login issues since Monday"
+
+  Context loaded  →  4 prior messages (login failure first reported 3 days ago)
+  Role            →  support-tier1 → escalating to support-tier2
+  Response        →  I can see you've been dealing with this since Monday.
+                     Let's reset your session tokens — here's exactly how...
+```
+
+```python
+session  = await agent.session(f"customer-{customer_id}", role="support-tier1")
+response = await session.prompt(customer_message)
+# Claude recalls the full conversation history automatically.
+# Role assigns the right model and persona — no code changes to escalate tiers.
+```
+
+**The harness advantage — test multi-turn stateful conversations deterministically**
+
+```python
+# Simulate a full multi-turn support conversation — no API, no flakiness
+harness = MockHarness(responses=[
+    "Thanks for reaching out. Can you describe the issue?",
+    "I see — let me escalate this to tier 2.",
+    "Issue resolved. Closing ticket.",
+])
+agent = ClaudiumAgent(config=config, harness=harness)
+
+session = await agent.session("customer-7821", role="support-tier1")
+await session.prompt("Login is broken")
+await session.prompt("Still broken after reset")
+msgs = await session._messages()
+assert any("escalate" in c for _, c in msgs)
+# Full multi-turn conversation tested. History verified. Zero API calls.
 ```
 
 ---
@@ -64,12 +198,11 @@ pip install "claudium[sandboxes]"  # remote sandboxes — E2B and more
 ## Quick Start
 
 ```bash
+pip install claudium
 claudium init my-agent
 cd my-agent
 claudium run --prompt "Triage issue #42"
 ```
-
-Three commands. Running agent.
 
 ---
 
@@ -77,15 +210,16 @@ Three commands. Running agent.
 
 | | Capability | What it means |
 |---|---|---|
+| 🔁 | **Swappable harness** | Decouple agent logic from the API — test offline, deploy with confidence |
 | 📝 | **Markdown skills** | Define reusable agent workflows in `.agents/skills/*.md` — no code required |
 | 🔒 | **Secure sandbox** | Filesystem and shell access behind explicit opt-in policy — locked down by default |
 | 💾 | **Stateful sessions** | Resume agent context across runs with stable session IDs, SQLite-backed |
 | 🧩 | **Child tasks** | Spawn focused sub-agents with isolated history and shared sandbox |
 | 🎯 | **Typed outputs** | Return validated Pydantic models via Claude's native tool-use — no delimiter hacks |
-| ⚡ | **Prompt caching** | System prompts and skill instructions cached automatically — lower cost, faster responses |
+| ⚡ | **Prompt caching** | System prompts cached automatically — lower cost, faster responses |
 | 🌊 | **Streaming** | First-class streaming via `session.stream()`, CLI, or SSE webhook |
 | 🔌 | **MCP integration** | Pass MCP server tools directly into Claude's tool-use layer |
-| 🪝 | **Webhook agents** | Expose any agent as `POST /agents/{name}/{agent_id}` with one decorator |
+| 🪝 | **Webhook agents** | Expose any agent as `POST /agents/{name}/{agent_id}` with one file |
 | 🚀 | **One-command deploy** | Generate Docker, Railway, Fly.io, and Render configs with `claudium build` |
 
 ---
@@ -163,9 +297,9 @@ await session.prompt("Any update on that login issue?")  # Claude remembers
 Spawn isolated tasks that share the parent sandbox.
 
 ```python
-session = await agent.session("pipeline-run-1")
+session      = await agent.session("pipeline-run-1")
 summary_task = await session.task("summarise", role="analyst")
-result = await summary_task.skill("summarise", args={"doc": "report.pdf"})
+result       = await summary_task.skill("summarise", args={"doc": "report.pdf"})
 ```
 
 Isolated history. Shared filesystem. Clean separation.
@@ -202,9 +336,9 @@ Turn any agent into a live HTTP endpoint.
 triggers = {"webhook": True}
 
 async def triage(context):
-    agent = await context.init()
+    agent   = await context.init()
     session = await agent.session(context.agent_id)
-    result = await session.skill("triage", args=context.payload, result=TriageResult)
+    result  = await session.skill("triage", args=context.payload, result=TriageResult)
     return result.model_dump()
 ```
 
@@ -295,102 +429,6 @@ claudium build --target railway   # railway.toml
 claudium build --target fly       # fly.toml
 claudium build --target render    # render.yaml
 claudium build --target ci        # GitHub Actions workflow
-```
-
----
-
-## Use Cases
-
-Claudium is built for agents that do real work — not chat interfaces. Here are three production scenarios out of the box.
-
----
-
-### 1. GitHub Issue Triage
-
-Automatically classify, label, and route incoming issues — triggered by webhook, returns a typed result.
-
-```console
-$ claudium run --skill triage --prompt "Issue #142: Login fails on Safari macOS 14"
-
-  Severity  →  high
-  Labels    →  bug · browser-compat · auth
-  Assignee  →  @auth-team
-  Summary   →  Safari SameSite cookie regression affecting macOS 14+
-```
-
-```python
-from pydantic import BaseModel
-from claudium import init
-
-class TriageResult(BaseModel):
-    severity: str
-    labels: list[str]
-    assignee: str
-    summary: str
-
-agent  = await init()
-session = await agent.session("github-triage")
-
-result = await session.skill(
-    "triage",
-    args={"issue_number": 142, "title": "Login fails on Safari macOS 14"},
-    result=TriageResult,
-)
-# TriageResult(
-#   severity = "high",
-#   labels   = ["bug", "browser-compat", "auth"],
-#   assignee = "@auth-team",
-#   summary  = "Safari SameSite cookie regression affecting macOS 14+"
-# )
-```
-
----
-
-### 2. Automated PR Code Review
-
-Spawn parallel child tasks — each reviewer has isolated context but shares the same sandbox. No cross-contamination, no boilerplate.
-
-```console
-$ claudium run --skill pr-review --prompt "PR #99: OAuth2 + new DB access layer"
-
-  [security]     2 findings — SQL injection risk db.py:142 · missing CSRF token
-  [performance]  1 finding  — N+1 query in user_loader(), suggest eager load
-  [style]        Passed
-```
-
-```python
-session = await agent.session("pr-review-99")
-
-security    = await session.task("security",    role="security-analyst")
-performance = await session.task("performance", role="perf-analyst")
-
-sec_result  = await security.prompt("Review auth.py for vulnerabilities")
-perf_result = await performance.prompt("Review db.py for N+1 query patterns")
-
-# Two focused reviewers — isolated history, shared filesystem, typed findings
-```
-
----
-
-### 3. Persistent Customer Support
-
-Sessions resume full conversation history across every interaction. Route to the right tier automatically via roles — no extra plumbing.
-
-```console
-$ claudium run --session customer-7821 --prompt "Still having login issues since Monday"
-
-  Context loaded  →  4 prior messages (login failure first reported 3 days ago)
-  Tier            →  support-tier1 → escalating to support-tier2
-  Response        →  I can see you've been dealing with this since Monday.
-                     Let's reset your session tokens — here's exactly how...
-```
-
-```python
-session  = await agent.session(f"customer-{customer_id}", role="support-tier1")
-response = await session.prompt(customer_message)
-
-# Claude automatically recalls the full prior conversation.
-# Role assigns the right model and persona — no code changes needed to escalate.
 ```
 
 ---
