@@ -301,14 +301,97 @@ claudium build --target ci        # GitHub Actions workflow
 
 ## Use Cases
 
-Claudium is designed for agents that do real work — not chat interfaces.
+Claudium is built for agents that do real work — not chat interfaces. Here are three production scenarios out of the box.
 
-- **Issue triage** — classify, label, and route GitHub issues automatically
-- **Customer support** — structured ticket handling with typed escalation paths
-- **Document processing** — ingest, extract, classify, transform at scale
-- **Data analysis** — run queries, validate schemas, produce structured reports
-- **Code review** — automated PR analysis with scored, typed findings
-- **Workflow automation** — multi-step pipelines with persistent state
+---
+
+### 1. GitHub Issue Triage
+
+Automatically classify, label, and route incoming issues — triggered by webhook, returns a typed result.
+
+```console
+$ claudium run --skill triage --prompt "Issue #142: Login fails on Safari macOS 14"
+
+  Severity  →  high
+  Labels    →  bug · browser-compat · auth
+  Assignee  →  @auth-team
+  Summary   →  Safari SameSite cookie regression affecting macOS 14+
+```
+
+```python
+from pydantic import BaseModel
+from claudium import init
+
+class TriageResult(BaseModel):
+    severity: str
+    labels: list[str]
+    assignee: str
+    summary: str
+
+agent  = await init()
+session = await agent.session("github-triage")
+
+result = await session.skill(
+    "triage",
+    args={"issue_number": 142, "title": "Login fails on Safari macOS 14"},
+    result=TriageResult,
+)
+# TriageResult(
+#   severity = "high",
+#   labels   = ["bug", "browser-compat", "auth"],
+#   assignee = "@auth-team",
+#   summary  = "Safari SameSite cookie regression affecting macOS 14+"
+# )
+```
+
+---
+
+### 2. Automated PR Code Review
+
+Spawn parallel child tasks — each reviewer has isolated context but shares the same sandbox. No cross-contamination, no boilerplate.
+
+```console
+$ claudium run --skill pr-review --prompt "PR #99: OAuth2 + new DB access layer"
+
+  [security]     2 findings — SQL injection risk db.py:142 · missing CSRF token
+  [performance]  1 finding  — N+1 query in user_loader(), suggest eager load
+  [style]        Passed
+```
+
+```python
+session = await agent.session("pr-review-99")
+
+security    = await session.task("security",    role="security-analyst")
+performance = await session.task("performance", role="perf-analyst")
+
+sec_result  = await security.prompt("Review auth.py for vulnerabilities")
+perf_result = await performance.prompt("Review db.py for N+1 query patterns")
+
+# Two focused reviewers — isolated history, shared filesystem, typed findings
+```
+
+---
+
+### 3. Persistent Customer Support
+
+Sessions resume full conversation history across every interaction. Route to the right tier automatically via roles — no extra plumbing.
+
+```console
+$ claudium run --session customer-7821 --prompt "Still having login issues since Monday"
+
+  Context loaded  →  4 prior messages (login failure first reported 3 days ago)
+  Tier            →  support-tier1 → escalating to support-tier2
+  Response        →  I can see you've been dealing with this since Monday.
+                     Let's reset your session tokens — here's exactly how...
+```
+
+```python
+session  = await agent.session(f"customer-{customer_id}", role="support-tier1")
+response = await session.prompt(customer_message)
+
+# Claude automatically recalls the full prior conversation.
+# Role assigns the right model and persona — no code changes needed to escalate.
+```
 
 ---
 
