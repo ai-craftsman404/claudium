@@ -28,6 +28,29 @@ Every other Claude framework accepts this as the cost of doing business. **Claud
 
 ---
 
+## How Claudium Works
+
+```mermaid
+%%{init:{'theme':'forest','themeVariables':{'fontFamily':'Arial'}}}%%
+flowchart TB
+    A[🧑‍💻 Your Agent Code] --> B[ClaudiumSession]
+    B --> C[📜 SQLite History]
+    B --> D{HarnessProtocol}
+    D -->|Production| E[AnthropicHarness]
+    D -->|Testing| F[MockHarness]
+    E --> G[☁️ Claude API]
+    F --> H[✅ Test Assertions]
+    G --> I[HarnessResult]
+    H --> I
+    I --> B
+    B --> J[🎯 Typed Output / Text]
+    style D fill:#e1f5fe,stroke:#0288d1
+    style F fill:#e8f5e9,stroke:#388e3c
+    style E fill:#f3e5f5,stroke:#7b1fa2
+```
+
+---
+
 ## The Harness — Claudium's Core Differentiator
 
 Claudium places a `HarnessProtocol` between your agent logic and the model. In production it routes to `AnthropicHarness`. In tests you swap in `MockHarness`. **Your agent code never changes.**
