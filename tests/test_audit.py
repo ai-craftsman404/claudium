@@ -1,14 +1,19 @@
-"""Tests for claudium.audit — compliance audit log export."""
+"""Tests for claudium.audit — compliance audit log export (unit + e2e CLI)."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import aiosqlite
 import pytest
+from typer.testing import CliRunner
 
 from claudium.audit import export_audit
+from claudium.cli import app
+
+runner = CliRunner()
 
 
 async def _seed_call_log(db_path: Path, rows: list[tuple]) -> None:
@@ -168,3 +173,99 @@ async def test_export_csv_team_runs_section(tmp_path: Path) -> None:
     assert "run-csv-1" in result
     assert "finance-audit" in result
     assert "rule-based" in result
+
+
+# ── E2E CLI tests ─────────────────────────────────────────────────────────────
+
+
+def _mock_anthropic() -> MagicMock:
+    mock_cls = MagicMock()
+    instance = MagicMock()
+    mock_cls.return_value = instance
+    return mock_cls
+
+
+def _setup_project(tmp_path: Path) -> Path:
+    """Write claudium.toml and return the seeded state_dir."""
+    (tmp_path / "claudium.toml").write_text(
+        '[agent]\nmodel = "claude-opus-4-5"\n', encoding="utf-8"
+    )
+    state_dir = tmp_path / ".claudium" / "sessions"
+    state_dir.mkdir(parents=True)
+    return state_dir
+
+
+async def _seed_state_dir(state_dir: Path) -> None:
+    db = state_dir / "audit-session.db"
+    await _seed_call_log(db, [
+        ("audit-session", "triage", "claude-sonnet-4-5", 142.3, 120, 60, 1,
+         "2026-05-09T10:00:00+00:00"),
+        ("audit-session", "review", "claude-sonnet-4-5", 230.1, 200, 90, 1,
+         "2026-05-09T10:05:00+00:00"),
+    ])
+    await _seed_team_run(db, "run-e2e-1", "finance-audit", "2026-05-09T10:10:00+00:00")
+
+
+def test_audit_export_cli_json_stdout(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    state_dir = _setup_project(tmp_path)
+    import asyncio
+    asyncio.run(_seed_state_dir(state_dir))
+    with patch("anthropic.AsyncAnthropic", _mock_anthropic()):
+        result = runner.invoke(app, ["audit", "export"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert len(data["call_log"]) == 2
+    assert data["call_log"][0]["skill"] == "triage"
+    assert len(data["team_runs"]) == 1
+    assert data["team_runs"][0]["domain"] == "finance-audit"
+
+
+def test_audit_export_cli_csv_stdout(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    state_dir = _setup_project(tmp_path)
+    import asyncio
+    asyncio.run(_seed_state_dir(state_dir))
+    with patch("anthropic.AsyncAnthropic", _mock_anthropic()):
+        result = runner.invoke(app, ["audit", "export", "--format", "csv"])
+    assert result.exit_code == 0
+    assert "# CALL LOG" in result.output
+    assert "# TEAM RUNS V3" in result.output
+    assert "triage" in result.output
+    assert "finance-audit" in result.output
+
+
+def test_audit_export_cli_to_file(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    state_dir = _setup_project(tmp_path)
+    import asyncio
+    asyncio.run(_seed_state_dir(state_dir))
+    out_file = tmp_path / "report.json"
+    with patch("anthropic.AsyncAnthropic", _mock_anthropic()):
+        result = runner.invoke(app, ["audit", "export", "--output", str(out_file)])
+    assert result.exit_code == 0
+    assert "written to" in result.output
+    assert out_file.exists()
+    data = json.loads(out_file.read_text())
+    assert "call_log" in data
+
+
+def test_audit_export_cli_session_filter(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    state_dir = _setup_project(tmp_path)
+    import asyncio
+    asyncio.run(_seed_state_dir(state_dir))
+    with patch("anthropic.AsyncAnthropic", _mock_anthropic()):
+        result = runner.invoke(app, ["audit", "export", "--session", "audit-session"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert all(e["session_id"] == "audit-session" for e in data["call_log"])
+
+
+def test_audit_export_cli_invalid_format(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _setup_project(tmp_path)
+    with patch("anthropic.AsyncAnthropic", _mock_anthropic()):
+        result = runner.invoke(app, ["audit", "export", "--format", "xml"])
+    assert result.exit_code != 0
+    assert "json" in result.output or "csv" in result.output
