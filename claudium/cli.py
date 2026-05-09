@@ -9,6 +9,8 @@ import typer
 from rich.console import Console
 
 app = typer.Typer(name="claudium", help="The agent harness framework for Claude.")
+audit_app = typer.Typer(name="audit", help="Compliance audit log commands.")
+app.add_typer(audit_app, name="audit")
 console = Console()
 
 
@@ -221,6 +223,42 @@ async def _calibrate(*, skill: str, dataset: Path, team_size: int, window: int) 
         table.add_row(str(w.agent_index), f"{w.weight:.3f}", str(w.run_count))
     console.print(table)
     console.print(f"Mean agreement: [bold]{cal.mean_agreement:.2f}[/bold]")
+
+
+@audit_app.command("export")
+def audit_export(
+    session: str = typer.Option(None, "--session", "-s", help="Filter by session ID"),
+    since: str = typer.Option(None, "--since", help="ISO date lower bound (e.g. 2026-05-01)"),
+    fmt: str = typer.Option("json", "--format", "-f", help="Output format: json or csv"),
+    output: Path = typer.Option(None, "--output", "-o", help="Output file (default: stdout)"),
+) -> None:
+    """Export audit log as JSON or CSV for compliance and regulatory reporting."""
+    asyncio.run(_audit_export(session=session, since=since, fmt=fmt, output=output))
+
+
+async def _audit_export(
+    *,
+    session: str | None,
+    since: str | None,
+    fmt: str,
+    output: Path | None,
+) -> None:
+    from claudium import init as claudium_init
+    from claudium.audit import export_audit
+
+    if fmt not in ("json", "csv"):
+        console.print("[red]--format must be 'json' or 'csv'[/red]")
+        raise typer.Exit(1)
+
+    agent = await claudium_init()
+    db_paths = sorted(agent.state_dir.glob("*.db"))
+    report = await export_audit(db_paths, session=session, since=since, fmt=fmt)
+
+    if output:
+        output.write_text(report, encoding="utf-8")
+        console.print(f"[green]Audit report written to:[/green] {output}")
+    else:
+        console.print(report, highlight=False)
 
 
 if __name__ == "__main__":
