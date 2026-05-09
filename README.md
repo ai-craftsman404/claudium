@@ -1,22 +1,22 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.11+-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+"/>
-  <img src="https://img.shields.io/github/actions/workflow/status/ai-craftsman404/claudium/ci.yml?style=flat-square&label=CI&logo=github" alt="CI"/>
-  <img src="https://img.shields.io/badge/built%20for-Claude-blueviolet?style=flat-square" alt="Built for Claude"/>
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License"/>
-  <img src="https://img.shields.io/badge/status-active%20development-orange?style=flat-square" alt="Active Development"/>
-</p>
+<div align="center">
 
-<h1 align="center">Claudium</h1>
+# Claudium
 
-<p align="center"><strong>The Claude agent framework where your logic never depends on the API.</strong></p>
+### The Claude agent framework where your logic never depends on the API.
 
-<p align="center">
-Build, test, and ship production Claude agents — without a single API call in CI.
-</p>
+[![CI](https://img.shields.io/github/actions/workflow/status/ai-craftsman404/claudium/ci.yml?style=flat-square&label=CI&logo=github)](https://github.com/ai-craftsman404/claudium/actions)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3178c6?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Built for Claude](https://img.shields.io/badge/built%20for-Claude-22d3ee?style=flat-square)](https://www.anthropic.com/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)](LICENSE)
+[![Status](https://img.shields.io/badge/status-active%20development-f97316?style=flat-square)]()
 
-<p align="center">
-  <img src="assets/harness-architecture.png" alt="Claudium Harness Architecture" width="720"/>
-</p>
+`177 tests` · `zero API calls in CI` · `pip install claudium`
+
+[**Quick Start**](#quick-start) · [**How It Works**](#how-claudium-works) · [**Use Cases**](#use-cases) · [**Agent Teams**](#agent-teams) · [**Roadmap**](#roadmap)
+
+<img src="assets/harness-architecture.png" alt="Claudium Harness Architecture" width="720"/>
+
+</div>
 
 ---
 
@@ -460,6 +460,68 @@ claudium build --target ci        # GitHub Actions workflow
 
 ---
 
+## Agent Teams
+
+Claudium v3 introduces domain-aware specialist teams — purpose-built agent pools that route, execute, and adjudicate based on the task domain.
+
+```python
+agent = ClaudiumAgent(config=config, harness=AnthropicHarness())
+ts    = await agent.team_session("audit-run-1")
+
+result = await ts.run_team_v3(
+    "Review transaction #TXN-4421 — $52,000 vendor payment",
+    domain="finance-audit",
+)
+# Runs transaction-auditor → risk-analyst → compliance-checker sequentially.
+# Each specialist sees prior findings. Adjudication is rule-based first,
+# LLM only when contradictions or low-fitness outputs require resolution.
+```
+
+### Supported Domains
+
+| Domain | Specialists | Strategy | Use case |
+|---|---|---|---|
+| `legal-compliance` | clause-extractor, obligation-validator, risk-classifier | Parallel | Contract review, regulatory compliance |
+| `finance-audit` | transaction-auditor, risk-analyst, compliance-checker | Sequential | Transaction auditing, AML, SOX controls |
+
+### Hybrid Adjudication
+
+```
+Rule-based (zero API cost) → accepts if all fitness scores ≥ 0.75 and no risk contradictions
+        ↓  only if rejected
+LLM adjudication → synthesises specialist findings, resolves gaps and contradictions
+```
+
+### ReplayHarness — Regulatory Reproducibility
+
+Record every (prompt, response) pair in production. Replay any historical run identically for audit.
+
+```python
+# Production — record to SQLite
+harness = ReplayHarness("audit.db", record=True)
+
+# Regulatory audit — deterministic replay, zero model calls
+harness = ReplayHarness("audit.db", record=False)
+result  = await harness.run(prompt=original_prompt, ...)
+# Returns exactly the same response as the original run.
+```
+
+---
+
+## Roadmap
+
+| Version | Milestone |
+|---|---|
+| v1 | Core harness, sessions, skills, roles, SQLite history |
+| v2a | Agent teams, consensus voting, orchestrator synthesis |
+| v2b | `call_log` observability — latency, token cost, model per call |
+| v2c | Self-improvement loop — routing weights, evaluation tree, `claudium calibrate` |
+| v3a | Domain-aware specialist teams — legal-compliance domain, parallel execution |
+| v3b | Finance-audit domain, hybrid adjudication, `ReplayHarness` for regulatory replay |
+| v3c | User-extensible domain registry, custom specialist definitions *(planned)* |
+
+---
+
 ## Development
 
 ```bash
@@ -480,3 +542,13 @@ Contributions are welcome. Please open an issue before submitting large changes.
 ## License
 
 MIT — see [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+[Documentation](docs/) · [Issues](https://github.com/ai-craftsman404/claudium/issues) · [Changelog](CHANGELOG.md) · [PyPI](https://pypi.org/project/claudium/)
+
+Made with precision.
+
+</div>
