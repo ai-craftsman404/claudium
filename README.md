@@ -79,7 +79,7 @@ session = await agent.session("triage")
 result  = await session.skill("triage", args={"issue": 42}, result=TriageResult)
 ```
 
-This is what lets Claudium ship with **130 passing tests and zero API calls in CI.**
+This is what lets Claudium ship with **177 passing tests and zero API calls in CI.**
 
 ---
 
@@ -494,7 +494,9 @@ LLM adjudication → synthesises specialist findings, resolves gaps and contradi
 
 ### ReplayHarness — Regulatory Reproducibility
 
-Record every (prompt, response) pair in production. Replay any historical run identically for audit.
+> **Every other AI framework gives you outputs you can observe. Claudium gives you outputs you can prove.**
+
+Record every (prompt, response) pair in production. Replay any historical run identically for audit — exact same response, zero API cost, no model drift.
 
 ```python
 # Production — record to SQLite
