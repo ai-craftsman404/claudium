@@ -82,9 +82,28 @@ class TraceRecord:
 
 
 @dataclass
+class AgentWeight:
+    skill: str
+    agent_index: int
+    weight: float       # rolling mean of agreement scores, 0.0–1.0
+    run_count: int      # number of runs in the rolling window
+    updated_at: str
+
+
+@dataclass
+class CalibrationResult:
+    skill: str
+    samples_run: int
+    weights: list[AgentWeight]
+    mean_agreement: float
+
+
+@dataclass
 class TeamResult:
     run_id: str                   # UUID, FK to team_runs table
     prompt: str
     outputs: list[HarnessResult]  # one per sub-agent, ordered by agent index
     consensus: ConsensusSignal
     synthesis: str | None = None  # set after orchestrator.synthesise()
+    skill: str | None = None
+    resolved_at: str | None = None  # "consensus" | "weighted" | "synthesis_needed"

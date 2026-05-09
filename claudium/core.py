@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from claudium.orchestrator import OrchestratorSession
+    from claudium.teams.session import TeamSession
 
 import aiosqlite
 from pydantic import TypeAdapter
@@ -98,16 +99,50 @@ class ClaudiumAgent:
         await session._ensure_store()
         return session
 
+    async def team_session(
+        self,
+        session_id: str | None = None,
+        *,
+        role: str | None = None,
+        weight_window: int = 10,
+        high_threshold: float = 0.8,
+        mid_threshold: float = 0.6,
+    ) -> TeamSession:
+        """Create a TeamSession — v3a specialist team orchestration."""
+        try:
+            from claudium.teams.session import TeamSession as _TeamSession
+        except ImportError as exc:
+            raise ImportError(
+                "Install claudium[teams] to use agent team features."
+            ) from exc
+        sid = session_id or "team"
+        ts = _TeamSession(
+            agent=self, session_id=sid, role=role,
+            weight_window=weight_window,
+            high_threshold=high_threshold,
+            mid_threshold=mid_threshold,
+        )
+        await ts._ensure_store()
+        return ts
+
     async def orchestrator(
         self,
         session_id: str | None = None,
         *,
         role: str | None = None,
+        weight_window: int = 10,
+        high_threshold: float = 0.8,
+        mid_threshold: float = 0.6,
     ) -> OrchestratorSession:
         """Create an OrchestratorSession — a ClaudiumSession with agent team management."""
         from claudium.orchestrator import OrchestratorSession  # local: avoids circular import
         sid = session_id or "orchestrator"
-        orch = OrchestratorSession(agent=self, session_id=sid, role=role)
+        orch = OrchestratorSession(
+            agent=self, session_id=sid, role=role,
+            weight_window=weight_window,
+            high_threshold=high_threshold,
+            mid_threshold=mid_threshold,
+        )
         await orch._ensure_store()
         return orch
 

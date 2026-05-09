@@ -180,5 +180,48 @@ async def _trace(*, session: str | None, limit: int) -> None:
     console.print(table)
 
 
+@app.command()
+def calibrate(
+    skill: str = typer.Argument(..., help="Skill name to calibrate"),
+    dataset: Path = typer.Option(..., "--dataset", "-d", help="Dataset file (one prompt per line)"),
+    team_size: int = typer.Option(3, "--team-size", help="Number of sub-agents"),
+    window: int = typer.Option(10, "--window", help="Rolling average window size"),
+) -> None:
+    """Calibrate routing weights for a skill against a sample dataset."""
+    asyncio.run(_calibrate(skill=skill, dataset=dataset, team_size=team_size, window=window))
+
+
+async def _calibrate(*, skill: str, dataset: Path, team_size: int, window: int) -> None:
+    from rich.table import Table
+
+    from claudium import init as claudium_init
+
+    if not dataset.exists():
+        console.print(f"[red]Dataset file not found:[/red] {dataset}")
+        raise typer.Exit(1)
+
+    raw = dataset.read_text(encoding="utf-8").splitlines()
+    samples = [line.strip() for line in raw if line.strip()]
+    if not samples:
+        console.print("[red]Dataset is empty.[/red]")
+        raise typer.Exit(1)
+
+    agent = await claudium_init()
+    orch = await agent.orchestrator("calibrate", weight_window=window)
+    await orch.team(team_size)
+
+    n = len(samples)
+    console.print(
+        f"[green]Calibrating[/green] skill=[bold]{skill}[/bold] samples={n} team={team_size}"
+    )
+    cal = await orch.calibrate(skill, samples)
+
+    table = Table("Agent", "Weight", "Runs")
+    for w in cal.weights:
+        table.add_row(str(w.agent_index), f"{w.weight:.3f}", str(w.run_count))
+    console.print(table)
+    console.print(f"Mean agreement: [bold]{cal.mean_agreement:.2f}[/bold]")
+
+
 if __name__ == "__main__":
     app()
