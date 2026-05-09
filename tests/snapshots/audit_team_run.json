@@ -1,0 +1,33 @@
+{
+  "call_log": [],
+  "filters": {
+    "session": null,
+    "since": null
+  },
+  "team_runs": [
+    {
+      "adjudication": {
+        "accepted": true,
+        "contradictions": [],
+        "gaps": [],
+        "mode": "rule-based"
+      },
+      "created_at": "2026-01-15T09:00:00+00:00",
+      "domain": "finance-audit",
+      "prompt": "Review invoice INV-001",
+      "run_id": "run-snap-001",
+      "specialist_runs": [
+        {
+          "fitness_score": 0.95,
+          "output_text": "SOX compliance verified.",
+          "specialist_name": "transaction-auditor"
+        }
+      ],
+      "specialists_used": [
+        "transaction-auditor",
+        "risk-assessor"
+      ],
+      "synthesis": "Synthesis: all controls satisfied."
+    }
+  ]
+}

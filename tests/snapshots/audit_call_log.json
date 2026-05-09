@@ -1,0 +1,19 @@
+{
+  "call_log": [
+    {
+      "created_at": "2026-01-15T09:00:00+00:00",
+      "input_tokens": 100,
+      "latency_ms": 123.4,
+      "model": "claude-sonnet-4-5",
+      "output_tokens": 50,
+      "session_id": "snap-session",
+      "skill": "triage",
+      "success": 1
+    }
+  ],
+  "filters": {
+    "session": null,
+    "since": null
+  },
+  "team_runs": []
+}

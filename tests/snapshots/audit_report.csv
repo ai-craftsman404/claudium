@@ -1,0 +1,7 @@
+# CALL LOG
+session_id,skill,model,latency_ms,input_tokens,output_tokens,success,created_at
+snap-session,triage,claude-sonnet-4-5,123.4,100,50,1,2026-01-15T09:00:00+00:00
+
+# TEAM RUNS V3
+run_id,domain,prompt,specialists_used,adjudication_mode,adjudication_accepted,synthesis,created_at
+run-snap-001,finance-audit,Review invoice INV-001,transaction-auditor;risk-assessor,rule-based,True,Synthesis: all controls satisfied.,2026-01-15T09:00:00+00:00
