@@ -269,3 +269,234 @@ def test_audit_export_cli_invalid_format(tmp_path: Path, monkeypatch) -> None:
         result = runner.invoke(app, ["audit", "export", "--format", "xml"])
     assert result.exit_code != 0
     assert "json" in result.output or "csv" in result.output
+
+
+# ── Adversarial gap fixes ─────────────────────────────────────────────────────
+
+
+# CRITICAL: session filter must scope team_runs by db filename
+@pytest.mark.asyncio
+async def test_session_filter_scopes_team_runs_by_db(tmp_path: Path) -> None:
+    db_a = tmp_path / "session-a.db"
+    db_b = tmp_path / "session-b.db"
+    await _seed_call_log(db_a, [
+        ("session-a", "triage", "m", 100.0, 10, 5, 1, "2026-05-09T10:00:00+00:00"),
+    ])
+    await _seed_team_run(db_a, "run-a", "finance-audit", "2026-05-09T10:00:00+00:00")
+    await _seed_call_log(db_b, [
+        ("session-b", "review", "m", 200.0, 20, 10, 1, "2026-05-09T10:01:00+00:00"),
+    ])
+    await _seed_team_run(db_b, "run-b", "legal-compliance", "2026-05-09T10:01:00+00:00")
+    result = await export_audit([db_a, db_b], session="session-a", fmt="json")
+    data = json.loads(result)
+    assert all(e["session_id"] == "session-a" for e in data["call_log"])
+    assert len(data["team_runs"]) == 1
+    assert data["team_runs"][0]["run_id"] == "run-a"
+
+
+# CRITICAL: multi-db aggregation
+@pytest.mark.asyncio
+async def test_export_multi_db_aggregates_both(tmp_path: Path) -> None:
+    db1 = tmp_path / "db1.db"
+    db2 = tmp_path / "db2.db"
+    await _seed_call_log(db1, [
+        ("s1", "skill-1", "m", 100.0, 10, 5, 1, "2026-05-09T10:00:00+00:00"),
+    ])
+    await _seed_call_log(db2, [
+        ("s2", "skill-2", "m", 200.0, 20, 10, 1, "2026-05-09T10:01:00+00:00"),
+    ])
+    await _seed_team_run(db1, "run-1", "finance-audit", "2026-05-09T10:00:00+00:00")
+    await _seed_team_run(db2, "run-2", "legal-compliance", "2026-05-09T10:01:00+00:00")
+    result = await export_audit([db1, db2], fmt="json")
+    data = json.loads(result)
+    assert len(data["call_log"]) == 2
+    assert len(data["team_runs"]) == 2
+    skills = {e["skill"] for e in data["call_log"]}
+    assert skills == {"skill-1", "skill-2"}
+
+
+# CRITICAL: all db paths nonexistent — must return valid empty report
+@pytest.mark.asyncio
+async def test_export_all_db_paths_missing(tmp_path: Path) -> None:
+    result = await export_audit(
+        [tmp_path / "ghost1.db", tmp_path / "ghost2.db"], fmt="json"
+    )
+    data = json.loads(result)
+    assert data["call_log"] == []
+    assert data["team_runs"] == []
+    assert "generated_at" in data
+
+
+# CRITICAL: v1/v2 db has call_log but no team_runs_v3 — call_log must still populate
+@pytest.mark.asyncio
+async def test_export_v1_db_no_team_runs_table(tmp_path: Path) -> None:
+    db = tmp_path / "v1.db"
+    await _seed_call_log(db, [
+        ("v1-sess", "triage", "m", 50.0, 10, 5, 1, "2026-05-09T10:00:00+00:00"),
+    ])
+    result = await export_audit([db], fmt="json")
+    data = json.loads(result)
+    assert len(data["call_log"]) == 1
+    assert data["team_runs"] == []
+
+
+# CRITICAL: NULL adjudication and synthesis through CSV — must not raise
+@pytest.mark.asyncio
+async def test_to_csv_null_adjudication_and_synthesis(tmp_path: Path) -> None:
+    import aiosqlite as _aiosqlite
+    db = tmp_path / "nulls.db"
+    async with _aiosqlite.connect(db) as conn:
+        await conn.execute(
+            "create table if not exists team_runs_v3 ("
+            "id text primary key, prompt text, domain text, specialists_used text, "
+            "adjudication text, synthesis text, created_at text)"
+        )
+        await conn.execute(
+            "create table if not exists specialist_runs ("
+            "id integer primary key autoincrement, run_id text, "
+            "specialist_name text, output_text text, fitness_score real)"
+        )
+        await conn.execute(
+            "insert into team_runs_v3 values (?,?,?,?,?,?,?)",
+            ("run-null", "prompt", "finance-audit", '[]', None, None,
+             "2026-05-09T10:00:00+00:00"),
+        )
+        await conn.commit()
+    result = await export_audit([db], fmt="csv")
+    assert "# TEAM RUNS V3" in result
+    assert "run-null" in result
+
+
+# MEDIUM: CLI JSON must verify specialist_runs nesting
+def test_audit_export_cli_verifies_specialist_runs(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+    monkeypatch.chdir(tmp_path)
+    state_dir = _setup_project(tmp_path)
+    asyncio.run(_seed_state_dir(state_dir))
+    with patch("anthropic.AsyncAnthropic", _mock_anthropic()):
+        result = runner.invoke(app, ["audit", "export"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    sr = data["team_runs"][0]["specialist_runs"]
+    assert isinstance(sr, list)
+    assert len(sr) == 1
+    assert sr[0]["specialist_name"] == "transaction-auditor"
+    assert sr[0]["fitness_score"] == pytest.approx(0.9)
+
+
+# MEDIUM: CLI JSON must include filters field
+def test_audit_export_cli_verifies_filters_field(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+    monkeypatch.chdir(tmp_path)
+    state_dir = _setup_project(tmp_path)
+    asyncio.run(_seed_state_dir(state_dir))
+    with patch("anthropic.AsyncAnthropic", _mock_anthropic()):
+        result = runner.invoke(app, ["audit", "export", "--session", "audit-session"])
+    data = json.loads(result.output)
+    assert data["filters"]["session"] == "audit-session"
+    assert data["filters"]["since"] is None
+
+
+# MEDIUM: CLI JSON must include generated_at
+def test_audit_export_cli_verifies_generated_at(tmp_path: Path, monkeypatch) -> None:
+    import asyncio
+    from datetime import datetime
+    monkeypatch.chdir(tmp_path)
+    state_dir = _setup_project(tmp_path)
+    asyncio.run(_seed_state_dir(state_dir))
+    with patch("anthropic.AsyncAnthropic", _mock_anthropic()):
+        result = runner.invoke(app, ["audit", "export"])
+    data = json.loads(result.output)
+    dt = datetime.fromisoformat(data["generated_at"])
+    assert dt.tzinfo is not None
+
+
+# MEDIUM: combined --session and --since filters
+@pytest.mark.asyncio
+async def test_export_combined_session_and_since_filters(tmp_path: Path) -> None:
+    db = tmp_path / "sess-x.db"
+    await _seed_call_log(db, [
+        ("sess-x", "old", "m", 100.0, 10, 5, 1, "2026-04-01T00:00:00+00:00"),
+        ("sess-x", "new", "m", 200.0, 20, 10, 1, "2026-05-09T00:00:00+00:00"),
+        ("sess-y", "new", "m", 300.0, 30, 15, 1, "2026-05-09T00:00:00+00:00"),
+    ])
+    result = await export_audit([db], session="sess-x", since="2026-05-01", fmt="json")
+    data = json.loads(result)
+    assert len(data["call_log"]) == 1
+    assert data["call_log"][0]["skill"] == "new"
+    assert data["call_log"][0]["session_id"] == "sess-x"
+
+
+# MEDIUM: since filter applies to team_runs
+@pytest.mark.asyncio
+async def test_export_since_filter_on_team_runs(tmp_path: Path) -> None:
+    db = tmp_path / "tr-since.db"
+    await _seed_team_run(db, "run-old", "finance-audit", "2026-04-01T00:00:00+00:00")
+    await _seed_team_run(db, "run-new", "finance-audit", "2026-05-09T00:00:00+00:00")
+    result = await export_audit([db], since="2026-05-01", fmt="json")
+    data = json.loads(result)
+    assert len(data["team_runs"]) == 1
+    assert data["team_runs"][0]["run_id"] == "run-new"
+
+
+# MEDIUM: NULL optional fields in call_log rows
+@pytest.mark.asyncio
+async def test_export_null_call_log_fields(tmp_path: Path) -> None:
+    import aiosqlite as _aiosqlite
+    db = tmp_path / "nullcols.db"
+    async with _aiosqlite.connect(db) as conn:
+        await conn.execute(
+            "create table if not exists call_log ("
+            "id integer primary key autoincrement, session_id text, skill text, "
+            "model text, latency_ms real, input_tokens integer, output_tokens integer, "
+            "success integer default 1, created_at text)"
+        )
+        await conn.execute(
+            "insert into call_log(session_id, skill, model, latency_ms, "
+            "input_tokens, output_tokens, success, created_at) values (?,?,?,?,?,?,?,?)",
+            ("s1", None, None, None, None, None, 0, "2026-05-09T10:00:00+00:00"),
+        )
+        await conn.commit()
+    json_result = await export_audit([db], fmt="json")
+    csv_result = await export_audit([db], fmt="csv")
+    data = json.loads(json_result)
+    assert data["call_log"][0]["skill"] is None
+    assert data["call_log"][0]["success"] == 0
+    assert "s1" in csv_result
+
+
+# LOW: empty SQLite file with no tables
+@pytest.mark.asyncio
+async def test_export_db_with_no_tables(tmp_path: Path) -> None:
+    import aiosqlite as _aiosqlite
+    db = tmp_path / "empty-schema.db"
+    async with _aiosqlite.connect(db) as conn:
+        await conn.commit()
+    result = await export_audit([db], fmt="json")
+    data = json.loads(result)
+    assert data["call_log"] == []
+    assert data["team_runs"] == []
+
+
+# LOW: CLI with zero rows must output valid JSON
+def test_export_cli_empty_result_json_valid(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _setup_project(tmp_path)
+    with patch("anthropic.AsyncAnthropic", _mock_anthropic()):
+        result = runner.invoke(app, ["audit", "export"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["call_log"] == []
+    assert data["team_runs"] == []
+
+
+# LOW: CSV includes specialists_used summary but no separate specialist_runs section
+@pytest.mark.asyncio
+async def test_export_csv_omits_specialist_run_detail_section(tmp_path: Path) -> None:
+    db = tmp_path / "csv-sr.db"
+    await _seed_team_run(db, "run-sr", "finance-audit", "2026-05-09T10:00:00+00:00")
+    result = await export_audit([db], fmt="csv")
+    assert "# SPECIALIST RUNS" not in result
+    assert "fitness_score" not in result
+    assert "output_text" not in result
+    assert "specialists_used" in result

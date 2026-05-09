@@ -143,9 +143,12 @@ async def export_audit(
     for db_path in db_paths:
         if not db_path.exists():
             continue
+        # team_runs_v3 has no session_id column; scope by db filename (= session_id)
+        include_team_runs = session is None or db_path.stem == session
         async with aiosqlite.connect(db_path) as db:
             call_log.extend(await _query_call_log(db, session=session, since=since))
-            team_runs.extend(await _query_team_runs(db, since=since))
+            if include_team_runs:
+                team_runs.extend(await _query_team_runs(db, since=since))
 
     report = AuditReport(
         generated_at=datetime.now(timezone.utc).isoformat(),  # noqa: UP017
