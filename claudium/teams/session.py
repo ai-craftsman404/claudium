@@ -15,7 +15,7 @@ import aiosqlite
 from claudium.orchestrator import OrchestratorSession
 from claudium.teams.domain import DOMAINS, infer_domain, score_fitness
 from claudium.teams.specialist import Specialist, select_specialists
-from claudium.types import HarnessResult
+from claudium.types import BudgetExceededError, HarnessResult
 
 # ── Result types ──────────────────────────────────────────────────────────────
 
@@ -45,6 +45,7 @@ class TeamRunV3Result:
     specialist_results: list[SpecialistResult]
     adjudication: AdjudicationResult | None = None
     synthesis: str | None = None
+    truncated: bool = False
 
 
 # ── Complexity inference ──────────────────────────────────────────────────────
@@ -216,12 +217,15 @@ class TeamSession(OrchestratorSession):
         prompt: str,
         specialists: list[Specialist],
         domain: str,
-    ) -> list[SpecialistResult]:
-        """Run specialists in parallel or sequential based on domain strategy."""
+    ) -> tuple[list[SpecialistResult], bool]:
+        """Run specialists; returns (results, truncated).
+
+        truncated=True when the token budget was hit mid-run (sequential only).
+        """
         domain_obj = DOMAINS.get(domain)
         if domain_obj and domain_obj.execution_strategy == "sequential":
             return await self._run_sequential(prompt, specialists, domain)
-        return await self._run_parallel(prompt, specialists, domain)
+        return await self._run_parallel(prompt, specialists, domain), False
 
     async def _run_parallel(
         self,
@@ -244,10 +248,19 @@ class TeamSession(OrchestratorSession):
         prompt: str,
         specialists: list[Specialist],
         domain: str,
-    ) -> list[SpecialistResult]:
-        """Sequential execution — each specialist receives prior findings as context."""
+    ) -> tuple[list[SpecialistResult], bool]:
+        """Sequential execution — each specialist receives prior findings as context.
+
+        Returns (results, truncated). truncated=True when budget exhausted mid-run.
+        NOTE: specialist token usage is written to child task DBs, not the session DB,
+        so _check_budget() here measures session-level tokens only (e.g. adjudication calls).
+        """
         results: list[SpecialistResult] = []
         for spec in specialists:
+            try:
+                await self._check_budget()
+            except BudgetExceededError:
+                return results, True
             task = await self.task(spec.name)
             if results:
                 prior = "\n\n".join(
@@ -265,7 +278,7 @@ class TeamSession(OrchestratorSession):
                 specialist=spec, output=output,
                 fitness_score=score_fitness(output.text, domain),
             ))
-        return results
+        return results, False
 
     async def _adjudicate_llm(
         self,
@@ -318,20 +331,35 @@ class TeamSession(OrchestratorSession):
         adjudication_threshold: float = 0.75,
     ) -> TeamRunV3Result:
         """Run prompt through domain-appropriate specialist team with hybrid adjudication."""
+        await self._ensure_store()
         if domain not in DOMAINS and domain != "unknown":
             raise ValueError(
                 f"Unknown domain '{domain}'. Available: {', '.join(DOMAINS)}"
             )
         inferred_complexity = complexity if complexity is not None else _infer_complexity(prompt)
         specialists = select_specialists(domain, complexity=inferred_complexity)
-        specialist_results = await self.run_specialists(prompt, specialists, domain)
+
+        truncated = False
+        specialist_results: list[SpecialistResult] = []
+        try:
+            await self._check_budget()
+            specialist_results, truncated = await self.run_specialists(
+                prompt, specialists, domain
+            )
+        except BudgetExceededError:
+            truncated = True
 
         result = TeamRunV3Result(
             run_id=str(uuid.uuid4()),
             prompt=prompt,
             domain=domain,
             specialist_results=specialist_results,
+            truncated=truncated,
         )
+
+        if truncated:
+            await _record_v3_run(self.db_path, result)
+            return result
 
         # Rule-based adjudication first (zero API cost)
         adj = _adjudicate_rule_based(

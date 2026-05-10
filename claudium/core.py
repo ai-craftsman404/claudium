@@ -29,7 +29,7 @@ from claudium.skills import (
     load_skills,
     render_skill_prompt,
 )
-from claudium.types import ClaudiumConfig, ClaudiumEvent, HarnessResult, Role
+from claudium.types import BudgetExceededError, ClaudiumConfig, ClaudiumEvent, HarnessResult, Role
 
 
 async def init(
@@ -93,9 +93,11 @@ class ClaudiumAgent:
         session_id: str | None = None,
         *,
         role: str | None = None,
+        token_budget: int | None = None,
     ) -> ClaudiumSession:
         sid = session_id or "default"
-        session = ClaudiumSession(agent=self, session_id=sid, role=role)
+        budget = token_budget if token_budget is not None else self.config.token_budget
+        session = ClaudiumSession(agent=self, session_id=sid, role=role, token_budget=budget)
         await session._ensure_store()
         return session
 
@@ -148,12 +150,23 @@ class ClaudiumAgent:
 
 
 class ClaudiumSession:
-    def __init__(self, *, agent: ClaudiumAgent, session_id: str, role: str | None = None):
+    def __init__(
+        self,
+        *,
+        agent: ClaudiumAgent,
+        session_id: str,
+        role: str | None = None,
+        token_budget: int | None = None,
+    ):
         self.agent = agent
         self.session_id = session_id
         self.session_role = role
         self.db_path = agent.state_dir / f"{session_id}.db"
         self.sandbox = VirtualSandbox(agent.config.root, agent.sandbox_policy)
+        self._token_budget: int | None = (
+            token_budget if token_budget is not None else agent.config.token_budget
+        )
+        self._budget_grace_pct: float = agent.config.budget_grace_pct
 
     async def _ensure_store(self) -> None:
         async with aiosqlite.connect(self.db_path) as db:
@@ -168,6 +181,27 @@ class ClaudiumSession:
                 "success integer default 1, created_at text)"
             )
             await db.commit()
+
+    async def _get_token_total(self) -> int:
+        async with aiosqlite.connect(self.db_path) as db:
+            try:
+                cursor = await db.execute(
+                    "SELECT COALESCE(SUM(COALESCE(input_tokens,0) + COALESCE(output_tokens,0)), 0)"
+                    " FROM call_log"
+                )
+                row = await cursor.fetchone()
+                return int(row[0]) if row else 0
+            except Exception:
+                return 0
+
+    async def _check_budget(self) -> None:
+        """Raise BudgetExceededError if accumulated tokens exceed the grace limit."""
+        if self._token_budget is None:
+            return
+        consumed = await self._get_token_total()
+        grace_limit = int(self._token_budget * (1 + self._budget_grace_pct))
+        if consumed >= grace_limit:
+            raise BudgetExceededError(consumed, self._token_budget, self.session_id)
 
     async def _log_call(
         self,

@@ -1,4 +1,6 @@
 {
+  "budget_consumed": 0,
+  "budget_limit": null,
   "call_log": [],
   "filters": {
     "session": null,

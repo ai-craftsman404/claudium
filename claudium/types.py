@@ -33,6 +33,18 @@ class Role:
     path: Path | None = None
 
 
+class BudgetExceededError(Exception):
+    """Raised when a session's token budget is exhausted."""
+    def __init__(self, consumed: int, limit: int, session_id: str) -> None:
+        self.consumed = consumed
+        self.limit = limit
+        self.session_id = session_id
+        super().__init__(
+            f"Token budget exceeded in session '{session_id}': "
+            f"{consumed} tokens consumed, limit is {limit}"
+        )
+
+
 @dataclass
 class ClaudiumConfig:
     model: str = "claude-opus-4-5"
@@ -47,6 +59,8 @@ class ClaudiumConfig:
     allow_compound_commands: bool = False
     typed_retries: int = 3
     mcp_servers: list[str] = field(default_factory=list)
+    token_budget: int | None = None   # combined input+output token limit per session
+    budget_grace_pct: float = 0.10    # allow this % overage before hard-stop
 
 
 @dataclass

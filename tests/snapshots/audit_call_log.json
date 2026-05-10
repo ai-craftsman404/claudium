@@ -1,4 +1,6 @@
 {
+  "budget_consumed": 150,
+  "budget_limit": null,
   "call_log": [
     {
       "created_at": "2026-01-15T09:00:00+00:00",

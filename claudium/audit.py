@@ -50,6 +50,8 @@ class AuditReport:
     filters: dict[str, Any]
     call_log: list[CallLogEntry]
     team_runs: list[TeamRunEntry]
+    budget_consumed: int = 0
+    budget_limit: int | None = None
 
 
 async def _query_call_log(
@@ -135,6 +137,7 @@ async def export_audit(
     session: str | None = None,
     since: str | None = None,
     fmt: str = "json",
+    budget_limit: int | None = None,
 ) -> str:
     """Query all db_paths and return a compliance audit report as JSON or CSV."""
     call_log: list[CallLogEntry] = []
@@ -150,11 +153,16 @@ async def export_audit(
             if include_team_runs:
                 team_runs.extend(await _query_team_runs(db, since=since))
 
+    budget_consumed = sum(
+        (e.input_tokens or 0) + (e.output_tokens or 0) for e in call_log
+    )
     report = AuditReport(
         generated_at=datetime.now(timezone.utc).isoformat(),  # noqa: UP017
         filters={"session": session, "since": since},
         call_log=call_log,
         team_runs=team_runs,
+        budget_consumed=budget_consumed,
+        budget_limit=budget_limit,
     )
 
     return _to_csv(report) if fmt == "csv" else _to_json(report)

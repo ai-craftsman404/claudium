@@ -26,6 +26,8 @@ def load_config(config_path: str | Path | None = None) -> ClaudiumConfig:
     session = raw.get("session", {})
     mcp = raw.get("mcp", {})
 
+    budget = raw.get("budget", {})
+
     return ClaudiumConfig(
         model=agent.get("model", "claude-opus-4-5"),
         sandbox=agent.get("sandbox", "virtual"),
@@ -34,6 +36,8 @@ def load_config(config_path: str | Path | None = None) -> ClaudiumConfig:
         allow_compound_commands=sandbox.get("allow_compound_commands", False),
         typed_retries=session.get("typed_retries", 3),
         mcp_servers=mcp.get("servers", []),
+        token_budget=budget.get("token_budget", None),
+        budget_grace_pct=budget.get("budget_grace_pct", 0.10),
     )
 
 

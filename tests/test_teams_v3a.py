@@ -165,8 +165,11 @@ async def test_run_specialists_returns_results(agent: ClaudiumAgent) -> None:
     agent.harness = MockHarness(responses)
     ts = await agent.team_session("ts-2")
     specialists = select_specialists("legal-compliance", complexity=3)
-    results = await ts.run_specialists("Review this contract", specialists, "legal-compliance")
+    results, truncated = await ts.run_specialists(
+        "Review this contract", specialists, "legal-compliance"
+    )
     assert len(results) == 3
+    assert truncated is False
     assert all(r.fitness_score >= 0.0 for r in results)
     assert all(r.fitness_score <= 1.0 for r in results)
 
