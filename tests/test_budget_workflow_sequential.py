@@ -11,7 +11,8 @@ Critical architectural gap being tested:
 
 Test scenarios:
   A. Budget exceeded BEFORE any specialists run → truncated=True, specialist_results == []
-  B. Budget passes initial check, re-check fires before 2nd specialist → truncated=True, len(specialist_results) == 1
+  B. Budget passes initial check, re-check fires before 2nd specialist →
+     truncated=True, len(specialist_results) == 1
   C. Full sequential run within budget → truncated=False, all specialists return results
   D. Document the task-token-visibility gap (xfail if budget somehow catches it)
 """
@@ -26,8 +27,7 @@ import aiosqlite
 import pytest
 
 from claudium.core import ClaudiumAgent
-from claudium.types import BudgetExceededError, ClaudiumConfig, ClaudiumEvent, HarnessResult
-
+from claudium.types import ClaudiumConfig, ClaudiumEvent, HarnessResult
 
 # ── Mock Harness ──────────────────────────────────────────────────────────────
 
@@ -46,7 +46,8 @@ class MockHarness:
             responses: List of responses to return on successive calls.
             token_writer_session_db: If provided, write tokens to this DB after each call.
                                      This simulates session-level adjudication calls.
-            tokens_per_call: (input_tokens, output_tokens) to write if token_writer_session_db is set.
+            tokens_per_call: (input_tokens, output_tokens) to write if
+                token_writer_session_db is set.
         """
         self._responses = list(responses) if responses else []
         self._call_count = 0
@@ -171,7 +172,9 @@ async def test_sequential_budget_exceeded_before_specialists() -> None:
         )
 
         # Assertions
-        assert result.truncated is True, "Expected truncated=True when budget exceeded before specialists"
+        assert result.truncated is True, (
+            "Expected truncated=True when budget exceeded before specialists"
+        )
         assert (
             len(result.specialist_results) == 0
         ), "Expected no specialist results when budget hit at initial check"
@@ -360,8 +363,9 @@ async def test_sequential_run_specialists_returns_tuple() -> None:
             config=config, harness=MockHarness(responses=[response, response])
         )
 
+        from claudium_finance.specialist import RISK_ANALYST, TRANSACTION_AUDITOR
+
         from claudium.teams.session import TeamSession
-        from claudium_finance.specialist import TRANSACTION_AUDITOR, RISK_ANALYST
 
         ts = TeamSession(agent=agent, session_id="seq-tuple")
         await ts._ensure_store()
@@ -398,8 +402,9 @@ async def test_sequential_check_budget_between_each_specialist() -> None:
             ),
         )
 
+        from claudium_finance.specialist import RISK_ANALYST, TRANSACTION_AUDITOR
+
         from claudium.teams.session import TeamSession
-        from claudium_finance.specialist import TRANSACTION_AUDITOR, RISK_ANALYST
 
         ts = TeamSession(agent=agent, session_id="seq-check-between")
         ts.db_path = tmp_path / "seq-check-between.db"
@@ -444,8 +449,9 @@ async def test_sequential_budget_check_respects_grace_percentage() -> None:
 
         agent = ClaudiumAgent(config=config, harness=MockHarness(responses=["spec1", "spec2"]))
 
+        from claudium_finance.specialist import RISK_ANALYST, TRANSACTION_AUDITOR
+
         from claudium.teams.session import TeamSession
-        from claudium_finance.specialist import TRANSACTION_AUDITOR, RISK_ANALYST
 
         ts = TeamSession(agent=agent, session_id="seq-grace")
         await ts._ensure_store()

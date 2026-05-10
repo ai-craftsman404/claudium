@@ -14,7 +14,6 @@ from claudium.config import load_config
 from claudium.core import ClaudiumAgent
 from claudium.types import BudgetExceededError, ClaudiumConfig, ClaudiumEvent, HarnessResult
 
-
 # ── Shared MockHarness ────────────────────────────────────────────────────────
 
 
@@ -112,16 +111,16 @@ async def test_audit_multiple_calls_aggregated(tmp_path: Path) -> None:
             "model text, latency_ms real, input_tokens integer, output_tokens integer, "
             "success integer default 1, created_at text)"
         )
+        _cols = (
+            "(session_id, skill, model, latency_ms,"
+            " input_tokens, output_tokens, success, created_at)"
+        )
         await db.execute(
-            "insert into call_log "
-            "(session_id, skill, model, latency_ms, input_tokens, output_tokens, success, created_at) "
-            "values (?,?,?,?,?,?,?,?)",
+            f"insert into call_log {_cols} values (?,?,?,?,?,?,?,?)",
             ("s1-multi", "skill1", "m", 100.0, 100, 50, 1, "2026-05-10T10:00:00+00:00"),
         )
         await db.execute(
-            "insert into call_log "
-            "(session_id, skill, model, latency_ms, input_tokens, output_tokens, success, created_at) "
-            "values (?,?,?,?,?,?,?,?)",
+            f"insert into call_log {_cols} values (?,?,?,?,?,?,?,?)",
             ("s1-multi", "skill2", "m", 150.0, 200, 100, 1, "2026-05-10T10:05:00+00:00"),
         )
         await db.commit()
@@ -194,7 +193,7 @@ async def test_audit_budget_limit_none_explicit(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_audit_csv_does_not_expose_budget_fields(tmp_path: Path) -> None:
-    """Test C: CSV format does NOT include budget_consumed/budget_limit (documenting current behavior)."""
+    """Test C: CSV format omits budget_consumed/budget_limit (documenting current behavior)."""
     config = ClaudiumConfig(root=tmp_path)
     agent = ClaudiumAgent(config=config, harness=MockHarness())
     session = await agent.session("s3")
@@ -226,7 +225,7 @@ async def test_audit_csv_call_log_values_present(tmp_path: Path) -> None:
 
     # Token values should appear in the CSV rows
     lines = result.split("\n")
-    data_lines = [l for l in lines if "s3-csv" in l]
+    data_lines = [line for line in lines if "s3-csv" in line]
     assert len(data_lines) > 0
     # Check that the token values appear
     assert "300" in result
@@ -496,10 +495,12 @@ async def test_audit_multi_db_null_tokens(tmp_path: Path) -> None:
             "model text, latency_ms real, input_tokens integer, output_tokens integer, "
             "success integer default 1, created_at text)"
         )
+        _cols = (
+            "(session_id, skill, model, latency_ms,"
+            " input_tokens, output_tokens, success, created_at)"
+        )
         await db.execute(
-            "insert into call_log "
-            "(session_id, skill, model, latency_ms, input_tokens, output_tokens, success, created_at) "
-            "values (?,?,?,?,?,?,?,?)",
+            f"insert into call_log {_cols} values (?,?,?,?,?,?,?,?)",
             ("s1", "test", "m", 100.0, None, None, 1, "2026-05-10T10:00:00+00:00"),
         )
         await db.commit()
@@ -563,10 +564,12 @@ async def test_full_workflow_budget_enforcement(tmp_path: Path) -> None:
 
     # Seed more tokens to exceed limit
     async with aiosqlite.connect(session.db_path) as db:
+        _cols = (
+            "(session_id, skill, model, latency_ms,"
+            " input_tokens, output_tokens, success, created_at)"
+        )
         await db.execute(
-            "insert into call_log "
-            "(session_id, skill, model, latency_ms, input_tokens, output_tokens, success, created_at) "
-            "values (?,?,?,?,?,?,?,?)",
+            f"insert into call_log {_cols} values (?,?,?,?,?,?,?,?)",
             ("enforce-s1", "test2", "m", 100.0, 80, 50, 1, "2026-05-10T10:05:00+00:00"),
         )
         await db.commit()

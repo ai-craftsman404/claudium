@@ -22,15 +22,13 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
 
 import aiosqlite
 import pytest
 
 from claudium.core import ClaudiumAgent
 from claudium.teams.domain import DOMAINS
-from claudium.types import BudgetExceededError, ClaudiumConfig, ClaudiumEvent, HarnessResult
-
+from claudium.types import ClaudiumConfig, ClaudiumEvent, HarnessResult
 
 # ── MockHarness with optional token injection ────────────────────────────────────
 
@@ -100,10 +98,12 @@ async def _seed_session_tokens(
             "model text, latency_ms real, input_tokens integer, output_tokens integer, "
             "success integer default 1, created_at text)"
         )
+        _cols = (
+            "(session_id, skill, model, latency_ms,"
+            " input_tokens, output_tokens, success, created_at)"
+        )
         await db.execute(
-            "insert into call_log"
-            "(session_id, skill, model, latency_ms, input_tokens, output_tokens, success, created_at)"
-            " values (?,?,?,?,?,?,?,?)",
+            f"insert into call_log {_cols} values (?,?,?,?,?,?,?,?)",
             (
                 "test-session",
                 "test",
@@ -139,7 +139,9 @@ async def test_budget_exceeded_before_parallel_run_truncates(tmp_path: Path) -> 
 
     # Assertions
     assert result.truncated is True, "Expected truncated=True when budget exceeded at entry"
-    assert len(result.specialist_results) == 0, "Expected no specialist results when budget exceeded"
+    assert len(result.specialist_results) == 0, (
+        "Expected no specialist results when budget exceeded"
+    )
     assert result.run_id is not None
     assert result.domain == "legal-compliance"
 
@@ -272,8 +274,8 @@ async def test_parallel_task_tokens_not_in_session_db(tmp_path: Path) -> None:
             async with aiosqlite.connect(task_db) as db:
                 try:
                     cursor = await db.execute(
-                        "SELECT COALESCE(SUM(COALESCE(input_tokens,0) + COALESCE(output_tokens,0)), 0)"
-                        " FROM call_log"
+                        "SELECT COALESCE(SUM(COALESCE(input_tokens,0)"
+                        " + COALESCE(output_tokens,0)), 0) FROM call_log"
                     )
                     row = await cursor.fetchone()
                     tokens = int(row[0]) if row else 0
