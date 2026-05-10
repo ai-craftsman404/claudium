@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claudium-finance"
+version = "0.1.0"
+description = "Finance and audit domain pack for Claudium"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "claudium>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/aialchemist/Claudium"

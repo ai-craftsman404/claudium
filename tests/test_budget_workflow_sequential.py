@@ -361,7 +361,7 @@ async def test_sequential_run_specialists_returns_tuple() -> None:
         )
 
         from claudium.teams.session import TeamSession
-        from claudium.teams.specialist import TRANSACTION_AUDITOR, RISK_ANALYST
+        from claudium_finance.specialist import TRANSACTION_AUDITOR, RISK_ANALYST
 
         ts = TeamSession(agent=agent, session_id="seq-tuple")
         await ts._ensure_store()
@@ -399,7 +399,7 @@ async def test_sequential_check_budget_between_each_specialist() -> None:
         )
 
         from claudium.teams.session import TeamSession
-        from claudium.teams.specialist import TRANSACTION_AUDITOR, RISK_ANALYST
+        from claudium_finance.specialist import TRANSACTION_AUDITOR, RISK_ANALYST
 
         ts = TeamSession(agent=agent, session_id="seq-check-between")
         ts.db_path = tmp_path / "seq-check-between.db"
@@ -445,7 +445,7 @@ async def test_sequential_budget_check_respects_grace_percentage() -> None:
         agent = ClaudiumAgent(config=config, harness=MockHarness(responses=["spec1", "spec2"]))
 
         from claudium.teams.session import TeamSession
-        from claudium.teams.specialist import TRANSACTION_AUDITOR, RISK_ANALYST
+        from claudium_finance.specialist import TRANSACTION_AUDITOR, RISK_ANALYST
 
         ts = TeamSession(agent=agent, session_id="seq-grace")
         await ts._ensure_store()
