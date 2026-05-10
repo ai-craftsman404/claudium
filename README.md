@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-active%20development-f97316?style=flat-square)]()
 
-`177 tests` · `zero API calls in CI` · `pip install claudium`
+`312 tests` · `zero API calls in CI` · `pip install claudium`
 
 [**Quick Start**](#quick-start) · [**How It Works**](#how-claudium-works) · [**Use Cases**](#use-cases) · [**Agent Teams**](#agent-teams) · [**Roadmap**](#roadmap)
 
@@ -79,7 +79,7 @@ session = await agent.session("triage")
 result  = await session.skill("triage", args={"issue": 42}, result=TriageResult)
 ```
 
-This is what lets Claudium ship with **177 passing tests and zero API calls in CI.**
+This is what lets Claudium ship with **312 passing tests and zero API calls in CI.**
 
 ---
 
@@ -248,6 +248,8 @@ claudium run --prompt "Triage issue #42"
 | 🔌 | **MCP integration** | Pass MCP server tools directly into Claude's tool-use layer |
 | 🪝 | **Webhook agents** | Expose any agent as `POST /agents/{name}/{agent_id}` with one file |
 | 🚀 | **One-command deploy** | Generate Docker, Railway, Fly.io, and Render configs with `claudium build` |
+| 📋 | **Compliance audit export** | Query all session call logs and team runs into JSON or CSV — `claudium audit export` |
+| 💰 | **Token budget enforcement** | Per-session token limits with grace period — hard-stop before costs exceed budget |
 
 ---
 
@@ -440,6 +442,10 @@ allow_write = false
 allow_shell = false
 allowed_commands = []
 
+[budget]
+token_budget = 100000      # combined input+output limit per session (omit = unlimited)
+budget_grace_pct = 0.10   # allow 10 % overage before hard-stop
+
 [mcp]
 servers = []
 ```
@@ -464,7 +470,16 @@ claudium build --target ci        # GitHub Actions workflow
 
 Claudium v3 introduces domain-aware specialist teams — purpose-built agent pools that route, execute, and adjudicate based on the task domain.
 
+Domains are **independently installable packages**. Install only what your use case requires:
+
+```bash
+pip install claudium-finance   # finance-audit domain
+pip install claudium-legal     # legal-compliance domain
+```
+
 ```python
+import claudium_finance        # registers finance-audit domain on import
+
 agent = ClaudiumAgent(config=config, harness=AnthropicHarness())
 ts    = await agent.team_session("audit-run-1")
 
@@ -477,12 +492,14 @@ result = await ts.run_team_v3(
 # LLM only when contradictions or low-fitness outputs require resolution.
 ```
 
-### Supported Domains
+### Domain Packs
 
-| Domain | Specialists | Strategy | Use case |
-|---|---|---|---|
-| `legal-compliance` | clause-extractor, obligation-validator, risk-classifier | Parallel | Contract review, regulatory compliance |
-| `finance-audit` | transaction-auditor, risk-analyst, compliance-checker | Sequential | Transaction auditing, AML, SOX controls |
+| Package | Domain | Specialists | Strategy | Use case |
+|---|---|---|---|---|
+| `claudium-finance` | `finance-audit` | transaction-auditor, risk-analyst, compliance-checker | Sequential | Transaction auditing, AML, SOX controls |
+| `claudium-legal` | `legal-compliance` | clause-extractor, obligation-validator, risk-classifier | Parallel | Contract review, regulatory compliance |
+
+New domains are self-contained packages — adding `claudium-healthcare` or `claudium-code` requires zero changes to core.
 
 ### Hybrid Adjudication
 
@@ -520,7 +537,8 @@ result  = await harness.run(prompt=original_prompt, ...)
 | v2c | Self-improvement loop — routing weights, evaluation tree, `claudium calibrate` |
 | v3a | Domain-aware specialist teams — legal-compliance domain, parallel execution |
 | v3b | Finance-audit domain, hybrid adjudication, `ReplayHarness` for regulatory replay |
-| v3c | User-extensible domain registry, custom specialist definitions *(planned)* |
+| v3c | Audit log export (`claudium audit export`), token budget enforcement, monorepo domain packs |
+| v3d | Model version pinning, user identity attribution, human-in-the-loop *(planned)* |
 
 ---
 
@@ -530,6 +548,7 @@ result  = await harness.run(prompt=original_prompt, ...)
 git clone https://github.com/ai-craftsman404/claudium
 cd claudium
 pip install -e ".[dev,server]"
+pip install -e packages/claudium-finance -e packages/claudium-legal
 pytest tests/ -v
 ```
 
