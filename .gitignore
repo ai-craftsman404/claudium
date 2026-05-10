@@ -9,3 +9,4 @@ dist/
 NOTES.md
 .claude/*
 !.claude/commands/
+tmp/
