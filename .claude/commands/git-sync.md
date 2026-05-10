@@ -55,18 +55,25 @@ Spawn **one agent** with the findings from Agent A and Agent B.
 
 Spawn **one agent** with the commit hash from Phase 2.
 
-**Task:** Push to remote. The repo is `ai-craftsman404/claudium` on GitHub.
+**Task:** Push to remote. First detect the current remote URL dynamically:
+```bash
+CURRENT_REMOTE=$(git remote get-url origin)
+```
+Extract the repo path from the URL (e.g. `https://github.com/owner/repo.git` → `owner/repo.git`).
 
 If GH_TOKEN is available (Agent B confirmed):
 ```bash
-GH_REMOTE="https://${GH_TOKEN}@github.com/ai-craftsman404/claudium.git"
-git remote set-url origin "$GH_REMOTE"
+CURRENT_REMOTE=$(git remote get-url origin)
+CLEAN_URL=$(echo "$CURRENT_REMOTE" | sed 's|https://[^@]*@||')
+GH_HOST=$(echo "$CLEAN_URL" | cut -d/ -f3)
+REPO_PATH=$(echo "$CLEAN_URL" | cut -d/ -f4-)
+git remote set-url origin "https://${GH_TOKEN}@${GH_HOST}/${REPO_PATH}"
 git push origin HEAD
-git remote set-url origin "https://github.com/ai-craftsman404/claudium.git"
+git remote set-url origin "$CURRENT_REMOTE"
 ```
 Do the URL set, push, and restore in a single compound command so the token is never left in the remote config.
 
-If GH_TOKEN is NOT available: report to user that push cannot proceed — they should run `export GH_TOKEN=<token>` and re-invoke `/project:git-sync`.
+If GH_TOKEN is NOT available: attempt push without token (`git push origin HEAD`) — if the credential helper (e.g. `gh`) is configured, it may succeed. If that also fails, report to user that push cannot proceed and they should run `export GH_TOKEN=<token>` and re-invoke `/git-sync`.
 
 - **Return:** push output (success or error), final remote URL (must be clean, no token)
 
