@@ -8,14 +8,21 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 import aiosqlite
 
 from claudium.orchestrator import OrchestratorSession
 from claudium.teams.domain import DOMAINS, infer_domain, score_fitness
 from claudium.teams.specialist import Specialist, select_specialists
-from claudium.types import BudgetExceededError, HarnessResult
+from claudium.types import (
+    ApprovalCallback,
+    ApprovalRequest,
+    ApprovalResponse,
+    BudgetExceededError,
+    HarnessResult,
+    SpecialistSummary,
+)
 
 # ── Result types ──────────────────────────────────────────────────────────────
 
@@ -45,7 +52,16 @@ class TeamRunV3Result:
     specialist_results: list[SpecialistResult]
     adjudication: AdjudicationResult | None = None
     synthesis: str | None = None
-    truncated: bool = False
+    stop_reason: Literal["budget_exceeded", "approval_rejected"] | None = None
+
+    @property
+    def truncated(self) -> bool:
+        """Deprecated — check stop_reason == 'budget_exceeded' instead."""
+        return self.stop_reason == "budget_exceeded"
+
+    @property
+    def approval_rejected(self) -> bool:
+        return self.stop_reason == "approval_rejected"
 
 
 # ── Complexity inference ──────────────────────────────────────────────────────
@@ -137,11 +153,16 @@ async def _ensure_v3_tables(db_path: Any) -> None:
             "specialist_name text not null, output_text text not null, "
             "fitness_score real not null)"
         )
-        # Migrate existing databases — add adjudication column if absent
-        try:
-            await db.execute("alter table team_runs_v3 add column adjudication text")
-        except Exception:
-            pass
+        # Migrate existing databases — add columns if absent
+        for stmt in (
+            "alter table team_runs_v3 add column adjudication text",
+            "alter table team_runs_v3 add column user_id text",
+            "alter table specialist_runs add column user_id text",
+        ):
+            try:
+                await db.execute(stmt)
+            except Exception:
+                pass
         await db.commit()
 
 
@@ -154,7 +175,9 @@ async def _persist_domain(db_path: Any, session_id: str, domain_name: str) -> No
         await db.commit()
 
 
-async def _record_v3_run(db_path: Any, result: TeamRunV3Result) -> None:
+async def _record_v3_run(
+    db_path: Any, result: TeamRunV3Result, *, user_id: str | None = None
+) -> None:
     specialists_json = json.dumps(
         [sr.specialist.name for sr in result.specialist_results]
     )
@@ -169,20 +192,21 @@ async def _record_v3_run(db_path: Any, result: TeamRunV3Result) -> None:
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
             "insert into team_runs_v3"
-            "(id, prompt, domain, specialists_used, adjudication, synthesis, created_at)"
-            " values (?,?,?,?,?,?,?)",
+            "(id, prompt, domain, specialists_used, adjudication, synthesis, created_at, user_id)"
+            " values (?,?,?,?,?,?,?,?)",
             (
                 result.run_id, result.prompt, result.domain,
                 specialists_json, adj_json, result.synthesis,
                 datetime.now(timezone.utc).isoformat(),  # noqa: UP017
+                user_id,
             ),
         )
         for sr in result.specialist_results:
             await db.execute(
                 "insert into specialist_runs"
-                "(run_id, specialist_name, output_text, fitness_score)"
-                " values (?,?,?,?)",
-                (result.run_id, sr.specialist.name, sr.output.text, sr.fitness_score),
+                "(run_id, specialist_name, output_text, fitness_score, user_id)"
+                " values (?,?,?,?,?)",
+                (result.run_id, sr.specialist.name, sr.output.text, sr.fitness_score, user_id),
             )
         await db.commit()
 
@@ -321,6 +345,8 @@ class TeamSession(OrchestratorSession):
         )
         return harness_result.text
 
+    _VALID_CHECKPOINTS = frozenset({"post_specialists"})
+
     async def run_team_v3(
         self,
         prompt: str,
@@ -329,8 +355,15 @@ class TeamSession(OrchestratorSession):
         complexity: int | None = None,
         model: str | None = None,
         adjudication_threshold: float = 0.75,
+        on_approval_required: ApprovalCallback | None = None,
+        checkpoint: str | None = None,
     ) -> TeamRunV3Result:
         """Run prompt through domain-appropriate specialist team with hybrid adjudication."""
+        if checkpoint is not None and checkpoint not in self._VALID_CHECKPOINTS:
+            raise ValueError(
+                f"Invalid checkpoint '{checkpoint}'. "
+                f"Valid values: {sorted(self._VALID_CHECKPOINTS)}"
+            )
         await self._ensure_store()
         if domain not in DOMAINS and domain != "unknown":
             raise ValueError(
@@ -339,27 +372,75 @@ class TeamSession(OrchestratorSession):
         inferred_complexity = complexity if complexity is not None else _infer_complexity(prompt)
         specialists = select_specialists(domain, complexity=inferred_complexity)
 
-        truncated = False
+        stop_reason: Literal["budget_exceeded", "approval_rejected"] | None = None
         specialist_results: list[SpecialistResult] = []
         try:
             await self._check_budget()
-            specialist_results, truncated = await self.run_specialists(
+            specialist_results, budget_hit = await self.run_specialists(
                 prompt, specialists, domain
             )
+            if budget_hit:
+                stop_reason = "budget_exceeded"
         except BudgetExceededError:
-            truncated = True
+            stop_reason = "budget_exceeded"
 
         result = TeamRunV3Result(
             run_id=str(uuid.uuid4()),
             prompt=prompt,
             domain=domain,
             specialist_results=specialist_results,
-            truncated=truncated,
+            stop_reason=stop_reason,
         )
 
-        if truncated:
-            await _record_v3_run(self.db_path, result)
+        if stop_reason is not None:
+            await _record_v3_run(self.db_path, result, user_id=self._user_id)
             return result
+
+        # HITL checkpoint: post_specialists
+        if on_approval_required is not None and checkpoint == "post_specialists":
+            adj_pre = _adjudicate_rule_based(
+                specialist_results, domain, threshold=adjudication_threshold
+            )
+            summaries = [
+                SpecialistSummary(
+                    name=sr.specialist.name,
+                    output=sr.output.text,
+                    fitness_score=sr.fitness_score,
+                )
+                for sr in specialist_results
+            ]
+            req = ApprovalRequest(
+                run_id=result.run_id,
+                session_id=self.session_id,
+                domain=domain,
+                prompt=prompt,
+                specialists=summaries,
+                summary="\n\n".join(
+                    f"{s.name}: {s.output}" for s in summaries
+                ) if summaries else "(no specialist results)",
+                rule_check_passed=adj_pre.accepted,
+                gaps=adj_pre.gaps,
+                contradictions=adj_pre.contradictions,
+                created_at=datetime.now(timezone.utc).isoformat(),  # noqa: UP017
+            )
+            try:
+                response: ApprovalResponse = await on_approval_required(req)
+            except Exception as exc:
+                result.stop_reason = "approval_rejected"
+                result.specialist_results = specialist_results
+                await _record_v3_run(self.db_path, result, user_id=self._user_id)
+                raise exc
+            if not response.approved:
+                result.stop_reason = "approval_rejected"
+                await _record_v3_run(self.db_path, result, user_id=self._user_id)
+                return result
+            # Re-check budget after human latency
+            try:
+                await self._check_budget()
+            except BudgetExceededError:
+                result.stop_reason = "budget_exceeded"
+                await _record_v3_run(self.db_path, result, user_id=self._user_id)
+                return result
 
         # Rule-based adjudication first (zero API cost)
         adj = _adjudicate_rule_based(
@@ -374,5 +455,5 @@ class TeamSession(OrchestratorSession):
             adj.mode = "llm"
             adj.synthesis = synthesis
 
-        await _record_v3_run(self.db_path, result)
+        await _record_v3_run(self.db_path, result, user_id=self._user_id)
         return result

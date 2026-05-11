@@ -23,6 +23,7 @@ class CallLogEntry:
     output_tokens: int | None
     success: int
     created_at: str
+    user_id: str | None = None
 
 
 @dataclass
@@ -52,6 +53,7 @@ class AuditReport:
     team_runs: list[TeamRunEntry]
     budget_consumed: int = 0
     budget_limit: int | None = None
+    user_id: str | None = None
 
 
 async def _query_call_log(
@@ -59,7 +61,16 @@ async def _query_call_log(
     *,
     session: str | None,
     since: str | None,
+    user_id: str | None = None,
 ) -> list[CallLogEntry]:
+    # Check which columns exist to support old DBs without user_id
+    try:
+        col_cursor = await db.execute("PRAGMA table_info(call_log)")
+        col_names = {row[1] for row in await col_cursor.fetchall()}
+    except Exception:
+        return []
+    has_user_id = "user_id" in col_names
+
     clauses: list[str] = []
     params: list[Any] = []
     if session:
@@ -68,11 +79,20 @@ async def _query_call_log(
     if since:
         clauses.append("created_at >= ?")
         params.append(since)
+    if user_id is not None and has_user_id:
+        clauses.append("COALESCE(user_id, '') = ?")
+        params.append(user_id)
+    elif user_id is not None and not has_user_id:
+        # No user_id column — no rows can match
+        return []
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    select_cols = (
+        "session_id, skill, model, latency_ms, input_tokens, output_tokens, "
+        "success, created_at" + (", user_id" if has_user_id else "")
+    )
     try:
         cursor = await db.execute(
-            f"SELECT session_id, skill, model, latency_ms, input_tokens, "
-            f"output_tokens, success, created_at FROM call_log {where} ORDER BY id ASC",
+            f"SELECT {select_cols} FROM call_log {where} ORDER BY id ASC",
             params,
         )
         rows = await cursor.fetchall()
@@ -82,6 +102,7 @@ async def _query_call_log(
         CallLogEntry(
             session_id=r[0], skill=r[1], model=r[2], latency_ms=r[3],
             input_tokens=r[4], output_tokens=r[5], success=r[6], created_at=r[7],
+            user_id=r[8] if has_user_id and len(r) > 8 else None,
         )
         for r in rows
     ]
@@ -138,6 +159,7 @@ async def export_audit(
     since: str | None = None,
     fmt: str = "json",
     budget_limit: int | None = None,
+    user_id: str | None = None,
 ) -> str:
     """Query all db_paths and return a compliance audit report as JSON or CSV."""
     call_log: list[CallLogEntry] = []
@@ -149,7 +171,9 @@ async def export_audit(
         # team_runs_v3 has no session_id column; scope by db filename (= session_id)
         include_team_runs = session is None or db_path.stem == session
         async with aiosqlite.connect(db_path) as db:
-            call_log.extend(await _query_call_log(db, session=session, since=since))
+            call_log.extend(
+                await _query_call_log(db, session=session, since=since, user_id=user_id)
+            )
             if include_team_runs:
                 team_runs.extend(await _query_team_runs(db, since=since))
 
@@ -158,11 +182,12 @@ async def export_audit(
     )
     report = AuditReport(
         generated_at=datetime.now(timezone.utc).isoformat(),  # noqa: UP017
-        filters={"session": session, "since": since},
+        filters={"session": session, "since": since, "user_id": user_id},
         call_log=call_log,
         team_runs=team_runs,
         budget_consumed=budget_consumed,
         budget_limit=budget_limit,
+        user_id=user_id,
     )
 
     return _to_csv(report) if fmt == "csv" else _to_json(report)

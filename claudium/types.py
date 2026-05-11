@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -61,6 +62,7 @@ class ClaudiumConfig:
     mcp_servers: list[str] = field(default_factory=list)
     token_budget: int | None = None   # combined input+output token limit per session
     budget_grace_pct: float = 0.10    # allow this % overage before hard-stop
+    pinned_model: str | None = None
 
 
 @dataclass
@@ -68,6 +70,7 @@ class HarnessResult:
     text: str
     raw: Any = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    model: str | None = None
 
 
 @dataclass(frozen=True)
@@ -121,3 +124,36 @@ class TeamResult:
     synthesis: str | None = None  # set after orchestrator.synthesise()
     skill: str | None = None
     resolved_at: str | None = None  # "consensus" | "weighted" | "synthesis_needed"
+
+
+# ── v3d HITL types ────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class SpecialistSummary:
+    name: str
+    output: str
+    fitness_score: float
+
+
+@dataclass(frozen=True)
+class ApprovalRequest:
+    run_id: str
+    session_id: str
+    domain: str
+    prompt: str
+    specialists: list[SpecialistSummary]
+    summary: str
+    rule_check_passed: bool
+    gaps: list[str]
+    contradictions: list[str]
+    created_at: str
+
+
+@dataclass
+class ApprovalResponse:
+    approved: bool
+    reason: str | None = None
+
+
+ApprovalCallback = Callable[[ApprovalRequest], Awaitable[ApprovalResponse]]

@@ -10,12 +10,15 @@
       "output_tokens": 50,
       "session_id": "snap-session",
       "skill": "triage",
-      "success": 1
+      "success": 1,
+      "user_id": null
     }
   ],
   "filters": {
     "session": null,
-    "since": null
+    "since": null,
+    "user_id": null
   },
-  "team_runs": []
+  "team_runs": [],
+  "user_id": null
 }

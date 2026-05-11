@@ -29,7 +29,14 @@ from claudium.skills import (
     load_skills,
     render_skill_prompt,
 )
-from claudium.types import BudgetExceededError, ClaudiumConfig, ClaudiumEvent, HarnessResult, Role
+from claudium.types import (
+    ApprovalCallback,
+    BudgetExceededError,
+    ClaudiumConfig,
+    ClaudiumEvent,
+    HarnessResult,
+    Role,
+)
 
 
 async def init(
@@ -94,10 +101,19 @@ class ClaudiumAgent:
         *,
         role: str | None = None,
         token_budget: int | None = None,
+        user_id: str | None = None,
+        on_approval_required: ApprovalCallback | None = None,
+        model: str | None = None,
     ) -> ClaudiumSession:
         sid = session_id or "default"
         budget = token_budget if token_budget is not None else self.config.token_budget
-        session = ClaudiumSession(agent=self, session_id=sid, role=role, token_budget=budget)
+        # model precedence: explicit > pinned_model in config
+        session_model = model or self.config.pinned_model
+        session = ClaudiumSession(
+            agent=self, session_id=sid, role=role, token_budget=budget,
+            user_id=user_id, on_approval_required=on_approval_required,
+            session_model=session_model,
+        )
         await session._ensure_store()
         return session
 
@@ -109,6 +125,8 @@ class ClaudiumAgent:
         weight_window: int = 10,
         high_threshold: float = 0.8,
         mid_threshold: float = 0.6,
+        user_id: str | None = None,
+        on_approval_required: ApprovalCallback | None = None,
     ) -> TeamSession:
         """Create a TeamSession — v3a specialist team orchestration."""
         try:
@@ -123,6 +141,8 @@ class ClaudiumAgent:
             weight_window=weight_window,
             high_threshold=high_threshold,
             mid_threshold=mid_threshold,
+            user_id=user_id,
+            on_approval_required=on_approval_required,
         )
         await ts._ensure_store()
         return ts
@@ -132,6 +152,8 @@ class ClaudiumAgent:
         session_id: str | None = None,
         *,
         role: str | None = None,
+        user_id: str | None = None,
+        on_approval_required: ApprovalCallback | None = None,
         weight_window: int = 10,
         high_threshold: float = 0.8,
         mid_threshold: float = 0.6,
@@ -141,6 +163,8 @@ class ClaudiumAgent:
         sid = session_id or "orchestrator"
         orch = OrchestratorSession(
             agent=self, session_id=sid, role=role,
+            user_id=user_id,
+            on_approval_required=on_approval_required,
             weight_window=weight_window,
             high_threshold=high_threshold,
             mid_threshold=mid_threshold,
@@ -157,7 +181,10 @@ class ClaudiumSession:
         session_id: str,
         role: str | None = None,
         token_budget: int | None = None,
-    ):
+        user_id: str | None = None,
+        on_approval_required: ApprovalCallback | None = None,
+        session_model: str | None = None,
+    ) -> None:
         self.agent = agent
         self.session_id = session_id
         self.session_role = role
@@ -167,6 +194,9 @@ class ClaudiumSession:
             token_budget if token_budget is not None else agent.config.token_budget
         )
         self._budget_grace_pct: float = agent.config.budget_grace_pct
+        self._user_id: str | None = user_id
+        self._on_approval_required: ApprovalCallback | None = on_approval_required
+        self._session_model: str | None = session_model
 
     async def _ensure_store(self) -> None:
         async with aiosqlite.connect(self.db_path) as db:
@@ -180,6 +210,22 @@ class ClaudiumSession:
                 "model text, latency_ms real, input_tokens integer, output_tokens integer, "
                 "success integer default 1, created_at text)"
             )
+            # Migration-safe: add user_id to call_log if not present
+            cols = {row[1] async for row in await db.execute("PRAGMA table_info(call_log)")}
+            if "user_id" not in cols:
+                await db.execute("ALTER TABLE call_log ADD COLUMN user_id TEXT")
+            # Migration-safe: add user_id to team_runs_v3 if table exists
+            v3_cols = {
+                row[1] async for row in await db.execute("PRAGMA table_info(team_runs_v3)")
+            }
+            if v3_cols and "user_id" not in v3_cols:
+                await db.execute("ALTER TABLE team_runs_v3 ADD COLUMN user_id TEXT")
+            # Migration-safe: add user_id to specialist_runs if table exists
+            sr_cols = {
+                row[1] async for row in await db.execute("PRAGMA table_info(specialist_runs)")
+            }
+            if sr_cols and "user_id" not in sr_cols:
+                await db.execute("ALTER TABLE specialist_runs ADD COLUMN user_id TEXT")
             await db.commit()
 
     async def _get_token_total(self) -> int:
@@ -211,6 +257,7 @@ class ClaudiumSession:
         raw: Any,
         skill: str | None = None,
         success: bool = True,
+        result_model: str | None = None,
     ) -> None:
         input_tok = output_tok = None
         usage = getattr(raw, "usage", None) if raw is not None else None
@@ -219,14 +266,21 @@ class ClaudiumSession:
             ot = getattr(usage, "output_tokens", None)
             input_tok = it if isinstance(it, int) else None
             output_tok = ot if isinstance(ot, int) else None
+        # Ensure model is a plain string (guards against mock objects in tests)
+        effective_model = (
+            result_model if isinstance(result_model, str) else None
+        ) or model
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
-                "insert into call_log(session_id, skill, model, latency_ms, "
-                "input_tokens, output_tokens, success, created_at) values (?,?,?,?,?,?,?,?)",
+                "insert into call_log"
+                "(session_id, skill, model, latency_ms, "
+                "input_tokens, output_tokens, success, created_at, user_id)"
+                " values (?,?,?,?,?,?,?,?,?)",
                 (
-                    self.session_id, skill, model, latency_ms,
+                    self.session_id, skill, effective_model, latency_ms,
                     input_tok, output_tok, int(success),
                     datetime.now(timezone.utc).isoformat(),  # noqa: UP017
+                    self._user_id,
                 ),
             )
             await db.commit()
@@ -259,7 +313,7 @@ class ClaudiumSession:
             )
         await self._log_call(
             model=config.model, latency_ms=(time.perf_counter() - t0) * 1000,
-            raw=output.raw, skill=_trace_skill,
+            raw=output.raw, skill=_trace_skill, result_model=output.model,
         )
 
         await self._append("user", text)
@@ -372,7 +426,12 @@ class ClaudiumSession:
 
     def _effective_config(self, model: str | None, role: str | None) -> ClaudiumConfig:
         selected = self._effective_role(role)
-        resolved_model = model or (selected.model if selected else None)
+        # precedence: per-call model > role model > session model > config model
+        resolved_model = (
+            model
+            or (selected.model if selected else None)
+            or self._session_model
+        )
         if resolved_model:
             from dataclasses import replace as dc_replace
             return dc_replace(self.agent.config, model=resolved_model)

@@ -184,8 +184,13 @@ class OrchestratorSession(ClaudiumSession):
         weight_window: int = 10,
         high_threshold: float = _HIGH_THRESHOLD,
         mid_threshold: float = _MID_THRESHOLD,
+        user_id: str | None = None,
+        on_approval_required: Any = None,
     ) -> None:
-        super().__init__(agent=agent, session_id=session_id, role=role)
+        super().__init__(
+            agent=agent, session_id=session_id, role=role,
+            user_id=user_id, on_approval_required=on_approval_required,
+        )
         self._team: list[ClaudiumTask] = []
         self._weight_window = weight_window
         self._high_threshold = high_threshold

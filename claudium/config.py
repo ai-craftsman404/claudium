@@ -27,6 +27,8 @@ def load_config(config_path: str | Path | None = None) -> ClaudiumConfig:
     mcp = raw.get("mcp", {})
 
     budget = raw.get("budget", {})
+    pinning = raw.get("pinning", {})
+    pinned_model = pinning.get("model", None)
 
     return ClaudiumConfig(
         model=agent.get("model", "claude-opus-4-5"),
@@ -38,6 +40,7 @@ def load_config(config_path: str | Path | None = None) -> ClaudiumConfig:
         mcp_servers=mcp.get("servers", []),
         token_budget=budget.get("token_budget", None),
         budget_grace_pct=budget.get("budget_grace_pct", 0.10),
+        pinned_model=pinned_model,
     )
 
 

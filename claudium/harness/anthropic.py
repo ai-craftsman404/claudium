@@ -56,6 +56,7 @@ class AnthropicHarness:
                 if block.type == "tool_use" and block.name == result_tool["name"]:
                     return HarnessResult(
                         text=json.dumps(block.input),
+                        model=response.model,
                         raw=response,
                         metadata={"tool_use": True},
                     )
@@ -63,7 +64,7 @@ class AnthropicHarness:
         text = "\n".join(
             block.text for block in response.content if block.type == "text"
         )
-        return HarnessResult(text=text, raw=response)
+        return HarnessResult(text=text, model=response.model, raw=response)
 
     async def stream(
         self,

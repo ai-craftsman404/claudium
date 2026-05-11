@@ -4,7 +4,8 @@
   "call_log": [],
   "filters": {
     "session": null,
-    "since": null
+    "since": null,
+    "user_id": null
   },
   "team_runs": [
     {
@@ -31,5 +32,6 @@
       ],
       "synthesis": "Synthesis: all controls satisfied."
     }
-  ]
+  ],
+  "user_id": null
 }
