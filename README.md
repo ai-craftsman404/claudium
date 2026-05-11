@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-active%20development-f97316?style=flat-square)]()
 
-`312 tests` · `zero API calls in CI` · `pip install claudium`
+`354 tests` · `zero API calls in CI` · `pip install claudium`
 
 [**Quick Start**](#quick-start) · [**How It Works**](#how-claudium-works) · [**Use Cases**](#use-cases) · [**Agent Teams**](#agent-teams) · [**Roadmap**](#roadmap)
 
@@ -79,7 +79,7 @@ session = await agent.session("triage")
 result  = await session.skill("triage", args={"issue": 42}, result=TriageResult)
 ```
 
-This is what lets Claudium ship with **312 passing tests and zero API calls in CI.**
+This is what lets Claudium ship with **354 passing tests and zero API calls in CI.**
 
 ---
 
@@ -538,7 +538,7 @@ result  = await harness.run(prompt=original_prompt, ...)
 | v3a | Domain-aware specialist teams — legal-compliance domain, parallel execution |
 | v3b | Finance-audit domain, hybrid adjudication, `ReplayHarness` for regulatory replay |
 | v3c | Audit log export (`claudium audit export`), token budget enforcement, monorepo domain packs |
-| v3d | Model version pinning, user identity attribution, human-in-the-loop *(planned)* |
+| v3d | Model version pinning, user identity attribution, human-in-the-loop HITL checkpoint |
 
 ---
 
